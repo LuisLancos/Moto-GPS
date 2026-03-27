@@ -70,6 +70,8 @@ class RouteLeg(BaseModel):
     distance_m: float
     time_s: float
     shape: list[list[float]]  # [[lat, lng], ...]
+    shape_start_idx: int = 0   # index into parent RouteResult.shape[]
+    shape_end_idx: int = 0     # enables per-day shape slicing
 
 
 class RouteManeuver(BaseModel):
@@ -139,7 +141,8 @@ class RouteAnomaly(BaseModel):
     affected_waypoint_index: int | None = None
     metric_value: float | None = None
     metric_threshold: float | None = None
-    fix: AnomalyFix
+    fix: AnomalyFix                       # Primary fix (backward compat)
+    fixes: list[AnomalyFix] = []           # Multiple fix options
 
 
 class RouteAnalysisRequest(BaseModel):
@@ -151,3 +154,68 @@ class RouteAnalysisResponse(BaseModel):
     anomalies: list[RouteAnomaly]
     overall_health: str  # good | fair | poor
     analysis_time_ms: int
+
+
+# ---------- Multi-Day Trip Planning ----------
+
+class DayOverlay(BaseModel):
+    """A day is a lens into the master route, defined by waypoint indices."""
+    day: int                              # 1-indexed
+    name: str | None = None               # "London to Bath"
+    description: str | None = None        # User's notes for this day
+    start_waypoint_idx: int
+    end_waypoint_idx: int
+
+
+class DayOverlayWithStats(DayOverlay):
+    """DayOverlay enriched with computed stats (derived, not stored)."""
+    distance_m: float = 0
+    time_s: float = 0
+    moto_score: float | None = None
+    waypoint_count: int = 0
+    shape_start_idx: int = 0
+    shape_end_idx: int = 0
+
+
+class AutoSplitRequest(BaseModel):
+    waypoints: list[Waypoint]
+    legs: list[RouteLeg]
+    daily_target_m: float = 400000        # 400km default
+
+
+class AutoSplitResponse(BaseModel):
+    day_overlays: list[DayOverlayWithStats]
+
+
+class SaveTripRequest(BaseModel):
+    name: str
+    description: str | None = None
+    route_type: str = "balanced"
+    preferences: dict
+    waypoints: list[Waypoint]
+    route_data: dict | None = None        # full RouteResult as dict
+    day_overlays: list[DayOverlay] = []
+    daily_target_m: float = 400000
+    total_distance_m: float = 0
+    total_time_s: float = 0
+    total_moto_score: float | None = None
+
+
+class TripSummaryResponse(BaseModel):
+    id: str
+    name: str
+    description: str | None
+    route_type: str
+    day_count: int
+    total_distance_m: float
+    total_time_s: float
+    total_moto_score: float | None
+    created_at: str
+
+
+class TripDetailResponse(TripSummaryResponse):
+    preferences: dict
+    waypoints: list[Waypoint]
+    route_data: dict | None
+    day_overlays: list[DayOverlay]
+    daily_target_m: float | None

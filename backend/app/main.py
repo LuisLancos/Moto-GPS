@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router as routes_router
 from app.api.trips import router as trips_router
 from app.api.gpx import router as gpx_router
+from app.api.trip_planner import router as trip_planner_router
 from app.services.valhalla_client import close_client
 
 # Configure logging so timing info shows up
@@ -38,6 +39,7 @@ app.add_middleware(
 app.include_router(routes_router, prefix="/api")
 app.include_router(trips_router, prefix="/api")
 app.include_router(gpx_router, prefix="/api")
+app.include_router(trip_planner_router, prefix="/api")
 
 
 @app.get("/health")

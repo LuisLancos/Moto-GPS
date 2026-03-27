@@ -171,7 +171,7 @@ Detect anomalies in a calculated route and suggest improvements.
 | `missed_high_scoring_road` | suggestion | A high-scoring scenic road within 2km was not used |
 | `better_parallel_road` | suggestion | A higher-scoring parallel road exists within 1km |
 
-**Fix actions**
+**Fix actions** — each anomaly now returns a `fixes` array (multiple options):
 
 | Action | Description |
 |--------|-------------|
@@ -184,6 +184,24 @@ Detect anomalies in a calculated route and suggest improvements.
 - `"good"` — no issues found, 0-1 suggestions
 - `"fair"` — 1 issue or 2+ warnings
 - `"poor"` — 2+ issues detected
+
+---
+
+### POST /api/route/snap
+
+Snap a coordinate to the nearest motorcycle-routable road using Valhalla's locate API.
+
+**Request Body**
+```json
+{"lat": 51.5, "lng": -0.1}
+```
+
+**Response**
+```json
+{"lat": 51.500038, "lng": -0.100242, "snapped": true, "way_id": 31765738}
+```
+
+If no road is found nearby, returns the original coordinates with `"snapped": false`.
 
 ---
 
@@ -262,9 +280,132 @@ Update trip name or description.
 }
 ```
 
+### PUT /api/trips/{trip_id}
+
+Full overwrite of a saved route (waypoints, route data, preferences, etc.). Used for in-place save when editing an existing trip.
+
+**Request Body** — same as `POST /api/trips`.
+
+**Response**
+```json
+{"id": "550e8400-...", "updated": true}
+```
+
 ### DELETE /api/trips/{trip_id}
 
 Delete a saved trip. Returns `204 No Content` on success.
+
+---
+
+## Multi-Day Trip Planning
+
+Multi-day trips are stored in a separate `trips` table. A trip is one continuous route with **day overlays** — lenses that split the master route into daily segments.
+
+### POST /api/trip-planner/auto-split
+
+Auto-suggest day splits based on a target daily distance.
+
+**Request Body**
+```json
+{
+  "waypoints": [...],
+  "legs": [...],
+  "daily_target_m": 400000
+}
+```
+
+**Response** — `AutoSplitResponse` with `day_overlays` including computed stats per day.
+
+### GET /api/trip-planner/trips
+
+List all multi-day trips (summary only).
+
+**Response**
+```json
+[
+  {
+    "id": "31f852cc-...",
+    "name": "London to Bath 2-Day Tour",
+    "description": "Via the Cotswolds",
+    "route_type": "scenic",
+    "day_count": 2,
+    "total_distance_m": 450000,
+    "total_time_s": 21600,
+    "total_moto_score": 0.55,
+    "created_at": "2026-03-27T12:00:00Z"
+  }
+]
+```
+
+### POST /api/trip-planner/trips
+
+Save a new multi-day trip.
+
+**Request Body**
+```json
+{
+  "name": "London to Bath 2-Day Tour",
+  "description": "Via the Cotswolds",
+  "route_type": "scenic",
+  "preferences": {...},
+  "waypoints": [...],
+  "route_data": {...},
+  "day_overlays": [
+    {"day": 1, "name": "London to Swindon", "start_waypoint_idx": 0, "end_waypoint_idx": 3},
+    {"day": 2, "name": "Swindon to Bath", "start_waypoint_idx": 3, "end_waypoint_idx": 6}
+  ],
+  "daily_target_m": 400000,
+  "total_distance_m": 450000,
+  "total_time_s": 21600
+}
+```
+
+### GET /api/trip-planner/trips/{trip_id}
+
+Get full trip detail including all waypoints, route data, and day overlays.
+
+### PUT /api/trip-planner/trips/{trip_id}
+
+Full overwrite of a multi-day trip. Same body as POST.
+
+### DELETE /api/trip-planner/trips/{trip_id}
+
+Delete a multi-day trip.
+
+### GET /api/trip-planner/trips/{trip_id}/gpx/day/{day_number}
+
+Export a single day's route as a GPX file. Slices waypoints, shape, and maneuvers for that day only.
+
+### GET /api/trip-planner/trips/{trip_id}/gpx/all
+
+Export all days as a ZIP file containing one GPX file per day.
+
+### POST /api/trip-planner/import-trip
+
+Import a multi-day trip from a ZIP of GPX files.
+
+**Request**: `multipart/form-data` with a `file` field containing a `.zip` file.
+
+Each GPX file in the ZIP becomes one day. Files are sorted alphabetically. Waypoints from each day are merged with shared boundary points deduplicated.
+
+**Response**
+```json
+{
+  "name": "Imported Trip",
+  "waypoints": [...],
+  "day_overlays": [...],
+  "day_count": 3,
+  "waypoint_count": 12
+}
+```
+
+### POST /api/trip-planner/trips/{trip_id}/import-day?day_number=N
+
+Import a GPX file as a day leg into an existing multi-day trip.
+
+**Request**: `multipart/form-data` with a `file` field containing a `.gpx` file.
+
+If `day_number` matches an existing day, replaces that day's waypoints. If `day_number` is one more than the last day, appends a new day. The trip's master waypoint list and day overlay indices are updated accordingly.
 
 ---
 
@@ -272,21 +413,33 @@ Delete a saved trip. Returns `204 No Content` on success.
 
 ### GET /api/trips/{trip_id}/gpx
 
-Export a saved trip as a GPX 1.1 file.
+Export a saved trip as a compact GPX 1.1 file.
 
 **Response**: `application/gpx+xml` file download.
 
-GPX includes:
-- `<wpt>` elements for each waypoint (with name, type: start/via/end)
-- `<trk>/<trkseg>/<trkpt>` for the full route geometry
-- `<rte>/<rtept>` for route-plan waypoints (device compatibility)
+GPX structure (compact — no full track dump):
+- `<wpt>` elements for each user waypoint (with name, type: start/via/end)
+- `<rte>/<rtept>` for **navigation points only** — turns, junctions, roundabouts, merges (extracted from Valhalla maneuvers, typically 30-80 points vs 17,000+ track points)
 - `<metadata>` with MotoGPS extensions (route_type, distance, time, moto_score)
+- No `<trk>` section — keeps files small and compatible with GPS devices that re-route between route points
+
+### POST /api/gpx/export
+
+Export the current (unsaved) route as GPX. Accepts route data as query parameters.
+
+**Query params**: `name`, `waypoints` (JSON), `route_data` (JSON with shape + maneuvers).
 
 ### POST /api/gpx/import
 
-Import a GPX file and extract waypoints + track shape.
+Import a GPX file and extract smart waypoints for route reconstruction.
 
 **Request**: `multipart/form-data` with a `file` field containing the `.gpx` file.
+
+**Smart import logic**:
+1. If `<wpt>` + detailed `<rte>/<rtept>` (many nav points): merge named waypoints with sampled route points (~1 per 20km)
+2. If `<wpt>` + simple `<rte>` (same count as wpt) + `<trk>`: sample track shape for intermediate shaping points
+3. If only `<rte>`: sample route points by distance
+4. If only `<trk>`: sample track points (~1 per 20km) with auto-generated start/end labels
 
 **Response**
 ```json
@@ -294,16 +447,18 @@ Import a GPX file and extract waypoints + track shape.
   "name": "Imported Route",
   "description": "A ride through Wales",
   "waypoints": [
-    {"lat": 51.816, "lng": -4.504, "label": "Birmingham"},
-    {"lat": 51.540, "lng": 0.713, "label": "Southend"}
+    {"lat": 51.816, "lng": -4.504, "label": "St. Clears"},
+    {"lat": 51.860, "lng": -4.128, "label": null},
+    {"lat": 51.774, "lng": -3.770, "label": null},
+    {"lat": 51.554, "lng": 0.677, "label": "Southend"}
   ],
-  "track_shape": [[-4.504, 51.816], [-4.0, 51.6], [0.713, 51.540]],
-  "waypoint_count": 2,
-  "track_point_count": 3
+  "track_shape": [...],
+  "waypoint_count": 18,
+  "track_point_count": 16965
 }
 ```
 
-Supports GPX files from Garmin, Calimoto, Kurviger, Google Earth, and any GPX 1.1 compliant source. Reads `<wpt>`, `<rte>/<rtept>`, and `<trk>/<trkseg>/<trkpt>` elements. Max file size: 10MB.
+Compatible with Garmin, Calimoto, Kurviger, Google Earth, and any GPX 1.1 source. Handles MotoGPS namespace prefixes. Max file size: 10MB.
 
 ---
 

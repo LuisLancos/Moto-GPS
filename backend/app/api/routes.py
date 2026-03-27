@@ -152,6 +152,66 @@ def _deduplicate_routes(routes: list[RouteResult]) -> list[RouteResult]:
 
 # ---------- Route Analysis Endpoint ----------
 
+@router.post("/route/snap")
+async def snap_to_road(waypoint: dict):
+    """Snap a coordinate to the nearest road using Valhalla's locate API.
+
+    Returns the snapped lat/lng on the nearest motorcycle-routable road.
+    """
+    from app.services.valhalla_client import _get_client
+    from app.config import settings
+    import json as _json
+
+    lat = waypoint.get("lat")
+    lng = waypoint.get("lng")
+    if lat is None or lng is None:
+        raise HTTPException(status_code=400, detail="lat and lng required")
+
+    try:
+        client = _get_client()
+        resp = await client.post(
+            f"{settings.valhalla_url}/locate",
+            content=_json.dumps({
+                "locations": [{"lat": lat, "lon": lng}],
+                "costing": "motorcycle",
+                "verbose": False,
+            }),
+            headers={"Content-Type": "application/json"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+        # Valhalla returns array of results, one per input location
+        if data and len(data) > 0:
+            result = data[0]
+            # Prefer edge snap (more accurate road position)
+            edges = result.get("edges", [])
+            if edges:
+                snapped = {
+                    "lat": edges[0].get("correlated_lat", lat),
+                    "lng": edges[0].get("correlated_lon", lng),
+                    "snapped": True,
+                    "way_id": edges[0].get("way_id"),
+                }
+                return snapped
+
+            # Fallback to node snap
+            nodes = result.get("nodes", [])
+            if nodes:
+                return {
+                    "lat": nodes[0].get("lat", lat),
+                    "lng": nodes[0].get("lon", lng),
+                    "snapped": True,
+                }
+
+        # No snap found — return original
+        return {"lat": lat, "lng": lng, "snapped": False}
+
+    except Exception as e:
+        logger.warning(f"Snap-to-road failed: {e}")
+        return {"lat": lat, "lng": lng, "snapped": False}
+
+
 @router.post("/route/analyze", response_model=RouteAnalysisResponse)
 async def analyze_route_endpoint(
     request: RouteAnalysisRequest,

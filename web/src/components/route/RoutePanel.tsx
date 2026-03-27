@@ -1,11 +1,14 @@
 "use client";
 
 import type { Waypoint, RouteResult, RouteType, RoutePreferences, TripSummary, RouteAnalysisResponse, RouteAnomaly } from "@/lib/types";
+import { formatDistance, formatTime } from "@/lib/formatters";
 import { RouteTypeSelector } from "./RouteTypeSelector";
 import { RouteStats } from "./RouteStats";
 import { RouteAnalysis } from "./RouteAnalysis";
 import { SavedTrips } from "./SavedTrips";
 import { WaypointList } from "./WaypointList";
+import { DayPlannerPanel } from "./DayPlannerPanel";
+import type { DayOverlay, DayOverlayWithStats } from "@/lib/types";
 
 interface RoutePanelProps {
   waypoints: Waypoint[];
@@ -15,6 +18,7 @@ interface RoutePanelProps {
   preferences: RoutePreferences;
   loading: boolean;
   error: string | null;
+  routeStale: boolean;
   // Saved trips
   trips: TripSummary[];
   tripsLoading: boolean;
@@ -28,29 +32,38 @@ interface RoutePanelProps {
   onCustomPreferencesChange: (prefs: RoutePreferences) => void;
   // Trip actions
   onSaveTrip: () => void;
+  onSaveAsNewTrip: () => void;
+  loadedTripName: string | null;
   onLoadTrip: (trip: TripSummary) => void;
   onDeleteTrip: (id: string) => void;
   onRefreshTrips: () => void;
   onImportGpx: (file: File) => void;
+  onImportTripZip: (file: File) => void;
   onExportGpx: () => void;
   // Analysis
   analysis: RouteAnalysisResponse | null;
   analysisLoading: boolean;
   onApplyFix: (anomaly: RouteAnomaly) => void;
   onHighlightAnomaly: (index: number | null) => void;
+  onNavigateToAnomaly: (anomaly: RouteAnomaly) => void;
+  // Multi-day trip planner
+  dayPlannerProps?: {
+    dayOverlays: DayOverlay[];
+    dayStats: DayOverlayWithStats[];
+    selectedDay: number | null;
+    dailyTargetM: number;
+    isMultiDay: boolean;
+    splitting: boolean;
+    onAutoSplit: () => void;
+    onClearDays: () => void;
+    onSelectDay: (day: number | null) => void;
+    onSetDailyTarget: (target: number) => void;
+    onSetIsMultiDay: (active: boolean) => void;
+    onUpdateDayMeta: (day: number, meta: { name?: string; description?: string }) => void;
+  };
 }
 
-function formatDistance(meters: number): string {
-  if (meters < 1000) return `${Math.round(meters)}m`;
-  return `${(meters / 1000).toFixed(1)}km`;
-}
-
-function formatTime(seconds: number): string {
-  const hours = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  if (hours > 0) return `${hours}h ${mins}m`;
-  return `${mins}m`;
-}
+// formatDistance and formatTime imported from @/lib/formatters
 
 export function RoutePanel({
   waypoints,
@@ -60,6 +73,7 @@ export function RoutePanel({
   preferences,
   loading,
   error,
+  routeStale,
   trips,
   tripsLoading,
   onRemoveWaypoint,
@@ -71,15 +85,20 @@ export function RoutePanel({
   onRouteTypeChange,
   onCustomPreferencesChange,
   onSaveTrip,
+  onSaveAsNewTrip,
+  loadedTripName,
   onLoadTrip,
   onDeleteTrip,
   onRefreshTrips,
   onImportGpx,
+  onImportTripZip,
   onExportGpx,
   analysis,
   analysisLoading,
   onApplyFix,
   onHighlightAnomaly,
+  onNavigateToAnomaly,
+  dayPlannerProps,
 }: RoutePanelProps) {
   const selectedRoute = routes[selectedRouteIndex] || null;
   const hasRoutes = routes.length > 0;
@@ -88,14 +107,21 @@ export function RoutePanel({
     <div className="flex flex-col gap-4 p-4 h-full overflow-y-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-bold text-zinc-100">Moto-GPS</h1>
+        <div className="flex flex-col">
+          <h1 className="text-lg font-bold text-zinc-100">Moto-GPS</h1>
+          {loadedTripName && (
+            <span className="text-[11px] text-zinc-500 truncate max-w-[160px]">
+              Editing: {loadedTripName}
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-2">
-          {/* Import GPX */}
+          {/* Import Route (.gpx) */}
           <label
             className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
-            title="Import GPX file"
+            title="Import a single route (.gpx)"
           >
-            📥 Import
+            📥 Route
             <input
               type="file"
               accept=".gpx,application/gpx+xml"
@@ -104,6 +130,25 @@ export function RoutePanel({
                 const file = e.target.files?.[0];
                 if (file) {
                   onImportGpx(file);
+                  e.target.value = "";
+                }
+              }}
+            />
+          </label>
+          {/* Import Trip (.zip) */}
+          <label
+            className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
+            title="Import a multi-day trip (.zip of GPX files)"
+          >
+            📥 Trip
+            <input
+              type="file"
+              accept=".zip,application/zip"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) {
+                  onImportTripZip(file);
                   e.target.value = "";
                 }
               }}
@@ -151,26 +196,32 @@ export function RoutePanel({
           <button
             onClick={onCalculate}
             disabled={loading}
-            className="flex-1 rounded-md bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white font-medium py-2.5 transition-colors text-sm"
+            className={`flex-1 rounded-md font-medium py-2.5 transition-colors text-sm text-white disabled:bg-zinc-700 disabled:text-zinc-500 ${
+              routeStale
+                ? "bg-amber-600 hover:bg-amber-500"
+                : "bg-blue-600 hover:bg-blue-500"
+            }`}
           >
-            {loading ? "Planning..." : "Plan Route"}
+            {loading ? "Planning..." : routeStale ? "🔄 Recalculate" : "Plan Route"}
           </button>
           {hasRoutes && (
             <>
               <button
                 onClick={onSaveTrip}
                 className="rounded-md bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-medium px-3 py-2.5 transition-colors text-sm"
-                title="Save this trip"
+                title={loadedTripName ? `Save "${loadedTripName}"` : "Save as new trip"}
               >
-                💾
+                💾{loadedTripName ? "" : "+"}
               </button>
-              <button
-                onClick={onExportGpx}
-                className="rounded-md bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-medium px-3 py-2.5 transition-colors text-sm"
-                title="Export as GPX"
-              >
-                📤
-              </button>
+              {loadedTripName && (
+                <button
+                  onClick={onSaveAsNewTrip}
+                  className="rounded-md bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-medium px-3 py-2.5 transition-colors text-[10px]"
+                  title="Save as new trip"
+                >
+                  💾+
+                </button>
+              )}
             </>
           )}
         </div>
@@ -229,6 +280,15 @@ export function RoutePanel({
         </div>
       )}
 
+      {/* Multi-Day Trip Planner */}
+      {dayPlannerProps && (
+        <DayPlannerPanel
+          {...dayPlannerProps}
+          waypointCount={waypoints.length}
+          hasRoute={hasRoutes}
+        />
+      )}
+
       {/* Selected route stats */}
       {selectedRoute && <RouteStats route={selectedRoute} />}
 
@@ -239,6 +299,7 @@ export function RoutePanel({
           loading={analysisLoading}
           onApplyFix={onApplyFix}
           onHighlightAnomaly={onHighlightAnomaly}
+          onNavigateToAnomaly={onNavigateToAnomaly}
         />
       )}
     </div>

@@ -78,3 +78,28 @@ function pointToSegmentDistance(
   const dy = pyf - cy;
   return Math.sqrt(dx * dx + dy * dy);
 }
+
+/**
+ * Compute bounding box from an array of [lng, lat] coordinate pairs.
+ * Returns [[minLng, minLat], [maxLng, maxLat]] for use with mapRef.fitBounds.
+ * Optional step parameter to skip points for large arrays.
+ */
+export function computeBounds(
+  coords: [number, number][] | number[][],
+  step = 1,
+): [[number, number], [number, number]] | null {
+  if (!coords || coords.length < 2) return null;
+
+  let minLng = Infinity, maxLng = -Infinity;
+  let minLat = Infinity, maxLat = -Infinity;
+
+  for (let i = 0; i < coords.length; i += step) {
+    const [lng, lat] = coords[i];
+    if (lng < minLng) minLng = lng;
+    if (lng > maxLng) maxLng = lng;
+    if (lat < minLat) minLat = lat;
+    if (lat > maxLat) maxLat = lat;
+  }
+
+  return [[minLng, minLat], [maxLng, maxLat]];
+}

@@ -205,6 +205,40 @@ async def update_trip(trip_id: UUID, req: UpdateTripRequest, db: AsyncSession = 
     )
 
 
+@router.put("/trips/{trip_id}")
+async def overwrite_trip(trip_id: UUID, req: SaveTripRequest, db: AsyncSession = Depends(get_db)):
+    """Full overwrite of a saved route (waypoints, route data, preferences, etc.)."""
+    result = await db.execute(
+        text("""
+            UPDATE saved_routes SET
+                name = :name, description = :description, route_type = :route_type,
+                waypoints = CAST(:waypoints AS jsonb), preferences = CAST(:preferences AS jsonb),
+                route_data = CAST(:route_data AS jsonb),
+                total_distance_m = :distance, total_time_s = :time, total_moto_score = :score,
+                updated_at = NOW()
+            WHERE id = :id
+            RETURNING id
+        """),
+        {
+            "id": str(trip_id),
+            "name": req.name,
+            "description": req.description,
+            "route_type": req.route_type,
+            "waypoints": json.dumps(req.waypoints),
+            "preferences": json.dumps(req.preferences),
+            "route_data": json.dumps(req.selected_route) if req.selected_route else None,
+            "distance": req.total_distance_m,
+            "time": req.total_time_s,
+            "score": req.total_moto_score,
+        },
+    )
+    await db.commit()
+    row = result.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    return {"id": str(row.id), "updated": True}
+
+
 @router.delete("/trips/{trip_id}")
 async def delete_trip(trip_id: UUID, db: AsyncSession = Depends(get_db)):
     """Delete a saved trip."""

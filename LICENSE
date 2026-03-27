@@ -1,0 +1,135 @@
+MIT License
+
+Copyright (c) 2026 Moto-GPS Contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+================================================================================
+THIRD-PARTY LICENCES
+================================================================================
+
+This project uses the following open-source components. Their respective
+licences are fully compatible with the MIT licence used by this project.
+
+--------------------------------------------------------------------------------
+Valhalla (Routing Engine)
+--------------------------------------------------------------------------------
+Copyright (c) 2015-2026 Valhalla Contributors
+Licence: MIT
+Source: https://github.com/valhalla/valhalla
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software.
+
+--------------------------------------------------------------------------------
+Martin (Vector Tile Server)
+--------------------------------------------------------------------------------
+Copyright (c) 2018-2026 MapLibre Contributors
+Licence: Apache-2.0 OR MIT (dual-licensed)
+Source: https://github.com/maplibre/martin
+
+Licensed under either of Apache License, Version 2.0 or MIT license, at
+your option.
+
+--------------------------------------------------------------------------------
+PostGIS (Spatial Database Extension)
+--------------------------------------------------------------------------------
+Copyright (c) 2001-2026 PostGIS Contributors
+Licence: GNU General Public License v2.0 or later (GPLv2+)
+Source: https://postgis.net/
+
+PostGIS is used as a runtime dependency (Docker container) and is not
+distributed as part of this software. This project does not modify or
+redistribute PostGIS source code.
+
+Note: PostGIS is linked against PostgreSQL, which uses the PostgreSQL License
+(a permissive licence similar to BSD/MIT).
+
+--------------------------------------------------------------------------------
+PostgreSQL (Database)
+--------------------------------------------------------------------------------
+Copyright (c) 1996-2026 The PostgreSQL Global Development Group
+Licence: PostgreSQL License (permissive, BSD-style)
+Source: https://www.postgresql.org/
+
+Permission to use, copy, modify, and distribute this software and its
+documentation for any purpose, without fee, and without a written agreement
+is hereby granted.
+
+--------------------------------------------------------------------------------
+MapLibre GL JS (Map Rendering)
+--------------------------------------------------------------------------------
+Copyright (c) 2020-2026 MapLibre Contributors
+Licence: BSD-3-Clause
+Source: https://github.com/maplibre/maplibre-gl-js
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the conditions of the BSD-3-Clause
+licence are met.
+
+--------------------------------------------------------------------------------
+OpenStreetMap Data
+--------------------------------------------------------------------------------
+Copyright (c) OpenStreetMap contributors
+Licence: Open Data Commons Open Database License (ODbL) v1.0
+Source: https://www.openstreetmap.org/copyright
+
+The road data used by this project is sourced from OpenStreetMap. You are free
+to copy, distribute, transmit and adapt OpenStreetMap data, as long as you
+credit OpenStreetMap and its contributors. If you alter or build upon the data,
+you may distribute the result only under the same licence.
+
+Any produced works (such as rendered maps or route calculations) using
+OpenStreetMap data must include the attribution:
+  "Data (c) OpenStreetMap contributors, ODbL"
+
+--------------------------------------------------------------------------------
+SRTM Elevation Data
+--------------------------------------------------------------------------------
+Source: NASA Shuttle Radar Topography Mission
+Licence: Public domain (US Government work)
+Source: https://www.usgs.gov/centers/eros/science/usgs-eros-archive-digital-elevation-shuttle-radar-topography-mission-srtm-1
+
+SRTM data is in the public domain and may be used without restriction.
+
+--------------------------------------------------------------------------------
+Additional Python Dependencies
+--------------------------------------------------------------------------------
+FastAPI         - MIT Licence
+Uvicorn         - BSD-3-Clause
+httpx           - BSD-3-Clause
+SQLAlchemy      - MIT Licence
+asyncpg         - Apache-2.0
+GeoAlchemy2     - MIT Licence
+Shapely         - BSD-3-Clause
+Pydantic        - MIT Licence
+osmium          - Boost Software Licence 1.0
+
+--------------------------------------------------------------------------------
+Additional JavaScript Dependencies
+--------------------------------------------------------------------------------
+Next.js         - MIT Licence
+React           - MIT Licence
+Tailwind CSS    - MIT Licence
+react-map-gl    - MIT Licence
+@tanstack/react-query - MIT Licence

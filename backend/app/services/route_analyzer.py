@@ -5,7 +5,6 @@ route geometry issues (U-turns), and road-quality issues via PostGIS.
 """
 
 import asyncio
-import math
 import time
 
 from sqlalchemy import text
@@ -25,29 +24,11 @@ from app.models.route import (
 
 # ──────────────────── Geometry Helpers ────────────────────
 
-def _bearing(p1: list[float], p2: list[float]) -> float:
-    """Bearing in degrees (0-360) from p1 to p2. Points are [lng, lat]."""
-    lat1, lat2 = math.radians(p1[1]), math.radians(p2[1])
-    dlon = math.radians(p2[0] - p1[0])
-    x = math.sin(dlon) * math.cos(lat2)
-    y = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
-    return math.degrees(math.atan2(x, y)) % 360
-
-
-def _haversine_m(p1: list[float], p2: list[float]) -> float:
-    """Haversine distance in meters. Points are [lng, lat]."""
-    R = 6_371_000
-    lat1, lat2 = math.radians(p1[1]), math.radians(p2[1])
-    dlat = lat2 - lat1
-    dlon = math.radians(p2[0] - p1[0])
-    a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-
-
-def _angular_diff(a: float, b: float) -> float:
-    """Smallest angular difference in degrees (0-180)."""
-    d = abs(a - b) % 360
-    return d if d <= 180 else 360 - d
+from app.utils.geo import (
+    bearing as _bearing,
+    haversine_m_lnglat as _haversine_m,
+    angular_diff as _angular_diff,
+)
 
 
 def _wp_to_lnglat(wp: Waypoint) -> list[float]:
@@ -104,10 +85,30 @@ def detect_backtracking(waypoints: list[Waypoint], route: RouteResult) -> list[R
 
         if diff > 120:
             si, ei = _shape_index_for_leg(route, i)
+            wp_label = waypoints[i + 1].label or f"waypoint {i + 2}"
+
+            # Compute a "move" suggestion: shift waypoint along overall bearing
+            move_lat = waypoints[i].lat + (waypoints[-1].lat - waypoints[0].lat) * 0.1
+            move_lng = waypoints[i].lng + (waypoints[-1].lng - waypoints[0].lng) * 0.1
+
+            fixes = [
+                AnomalyFix(
+                    action="move_waypoint",
+                    waypoint_index=i + 1,
+                    suggested_coord=[move_lng, move_lat],
+                    description=f"Move {wp_label} forward along the route direction to eliminate backtracking",
+                ),
+                AnomalyFix(
+                    action="remove_waypoint",
+                    waypoint_index=i + 1,
+                    description=f"Remove {wp_label} entirely",
+                ),
+            ]
+
             anomalies.append(RouteAnomaly(
                 type=AnomalyType.backtracking,
                 severity=AnomalySeverity.issue,
-                title=f"Backtracking at waypoint {i + 2}",
+                title=f"Backtracking at {wp_label}",
                 description=(
                     f"Segment {i + 1}→{i + 2} heads {seg_bearing:.0f}° "
                     f"but the destination is at {overall:.0f}° — "
@@ -122,11 +123,8 @@ def detect_backtracking(waypoints: list[Waypoint], route: RouteResult) -> list[R
                 affected_waypoint_index=i + 1,
                 metric_value=diff,
                 metric_threshold=120.0,
-                fix=AnomalyFix(
-                    action="remove_waypoint",
-                    waypoint_index=i + 1,
-                    description=f"Remove waypoint {i + 2} ({waypoints[i + 1].label or ''}) to eliminate backtracking",
-                ),
+                fix=fixes[0],
+                fixes=fixes,
             ))
 
     return anomalies
@@ -149,10 +147,31 @@ def detect_close_proximity(waypoints: list[Waypoint], route: RouteResult) -> lis
     for i, d in enumerate(distances):
         if d < threshold and len(distances) > 1:
             si, ei = _shape_index_for_leg(route, i)
+            wp1_label = waypoints[i].label or f"waypoint {i + 1}"
+            wp2_label = waypoints[i + 1].label or f"waypoint {i + 2}"
+
+            # Midpoint for merge suggestion
+            mid_lng = (waypoints[i].lng + waypoints[i + 1].lng) / 2
+            mid_lat = (waypoints[i].lat + waypoints[i + 1].lat) / 2
+
+            fixes = [
+                AnomalyFix(
+                    action="remove_waypoint",
+                    waypoint_index=i + 1,
+                    description=f"Remove {wp2_label} — it's very close to {wp1_label}",
+                ),
+                AnomalyFix(
+                    action="move_waypoint",
+                    waypoint_index=i + 1,
+                    suggested_coord=[mid_lng, mid_lat],
+                    description=f"Merge: move {wp2_label} to midpoint between the two",
+                ),
+            ]
+
             anomalies.append(RouteAnomaly(
                 type=AnomalyType.close_proximity,
                 severity=AnomalySeverity.warning,
-                title=f"Waypoints {i + 1} and {i + 2} are very close",
+                title=f"{wp1_label} and {wp2_label} are very close",
                 description=(
                     f"Only {d / 1000:.1f} km apart (average spacing is {avg_spacing / 1000:.1f} km). "
                     f"This may be a misplaced waypoint."
@@ -166,11 +185,8 @@ def detect_close_proximity(waypoints: list[Waypoint], route: RouteResult) -> lis
                 affected_waypoint_index=i + 1,
                 metric_value=d,
                 metric_threshold=threshold,
-                fix=AnomalyFix(
-                    action="remove_waypoint",
-                    waypoint_index=i + 1,
-                    description=f"Remove waypoint {i + 2} ({waypoints[i + 1].label or ''}) — it's very close to waypoint {i + 1}",
-                ),
+                fix=fixes[0],
+                fixes=fixes,
             ))
 
     return anomalies
@@ -233,7 +249,7 @@ def detect_detour_ratio(waypoints: list[Waypoint], route: RouteResult) -> list[R
     return anomalies
 
 
-def detect_u_turns(route: RouteResult) -> list[RouteAnomaly]:
+def detect_u_turns(route: RouteResult, waypoints: list[Waypoint] | None = None) -> list[RouteAnomaly]:
     """Detect U-turns from Valhalla maneuver types or shape bearing reversals."""
     anomalies = []
 
@@ -244,10 +260,44 @@ def detect_u_turns(route: RouteResult) -> list[RouteAnomaly]:
             ei = m.end_shape_index
             start_coord = route.shape[si] if si < len(route.shape) else route.shape[0]
             end_coord = route.shape[ei] if ei < len(route.shape) else route.shape[-1]
+            road_name = ", ".join(m.street_names) or "unnamed road"
+            # Try to find the nearest waypoint to this U-turn
+            nearest_wp_idx = None
+            fixes = []
+            if waypoints:
+                min_wp_dist = float("inf")
+                for wi in range(len(waypoints)):
+                    wd = _haversine_m(start_coord, _wp_to_lnglat(waypoints[wi]))
+                    if wd < min_wp_dist:
+                        min_wp_dist = wd
+                        nearest_wp_idx = wi
+
+                if nearest_wp_idx is not None and nearest_wp_idx > 0 and nearest_wp_idx < len(waypoints) - 1:
+                    fixes.append(AnomalyFix(
+                        action="move_waypoint",
+                        waypoint_index=nearest_wp_idx,
+                        suggested_coord=[
+                            (waypoints[nearest_wp_idx - 1].lng + waypoints[nearest_wp_idx + 1].lng) / 2,
+                            (waypoints[nearest_wp_idx - 1].lat + waypoints[nearest_wp_idx + 1].lat) / 2,
+                        ],
+                        description="Move nearby waypoint to eliminate the U-turn",
+                    ))
+                    fixes.append(AnomalyFix(
+                        action="remove_waypoint",
+                        waypoint_index=nearest_wp_idx,
+                        description="Remove the waypoint causing this U-turn",
+                    ))
+
+            if not fixes:
+                fixes.append(AnomalyFix(
+                    action="no_action",
+                    description="Check nearby waypoints — one may be in the wrong position",
+                ))
+
             anomalies.append(RouteAnomaly(
                 type=AnomalyType.u_turn,
                 severity=AnomalySeverity.issue,
-                title=f"U-turn at {', '.join(m.street_names) or 'unnamed road'}",
+                title=f"U-turn at {road_name}",
                 description=(
                     f"The route makes a U-turn covering {m.length:.1f} km. "
                     f"This usually indicates a misplaced waypoint."
@@ -258,12 +308,11 @@ def detect_u_turns(route: RouteResult) -> list[RouteAnomaly]:
                     start_coord=start_coord,
                     end_coord=end_coord,
                 ),
+                affected_waypoint_index=nearest_wp_idx,
                 metric_value=m.length,
                 metric_threshold=0.3,
-                fix=AnomalyFix(
-                    action="no_action",
-                    description="Check nearby waypoints — one may be in the wrong position",
-                ),
+                fix=fixes[0],
+                fixes=fixes,
             ))
 
     # Also detect from shape bearing changes (catches cases Valhalla doesn't flag)
@@ -340,23 +389,35 @@ async def detect_road_quality_drop(db: AsyncSession, route: RouteResult) -> list
     if len(groups) < 3:
         return []
 
-    # Query scores for each group
+    # Batch all groups into a SINGLE SQL query with group IDs
+    # Instead of N sequential queries, we run one query that returns scores per group
+    all_values = []
+    for gidx, (start, end, points) in enumerate(groups):
+        for p in points:
+            all_values.append(f"({gidx}, ST_SetSRID(ST_MakePoint({p[0]}, {p[1]}), 4326))")
+
+    if not all_values:
+        return []
+
+    values_sql = ", ".join(all_values)
+    query = text(f"""
+        WITH pts(gid, pt) AS (VALUES {values_sql})
+        SELECT pts.gid,
+               COALESCE(AVG(rs.composite_moto_score), 0) AS avg_score,
+               COALESCE(AVG(rs.surface_score), 0) AS avg_surface
+        FROM pts
+        LEFT JOIN road_segments rs
+          ON ST_DWithin(rs.geometry, pts.pt, 0.001) AND rs.length_m > 10
+        GROUP BY pts.gid
+        ORDER BY pts.gid
+    """)
+    result = await db.execute(query)
+    rows = {r.gid: (r.avg_score, r.avg_surface) for r in result.fetchall()}
+
     group_scores = []
-    for start, end, points in groups:
-        point_values = ", ".join(
-            f"(ST_SetSRID(ST_MakePoint({p[0]}, {p[1]}), 4326))" for p in points
-        )
-        query = text(f"""
-            WITH pts(pt) AS (VALUES {point_values})
-            SELECT COALESCE(AVG(rs.composite_moto_score), 0) AS avg_score,
-                   COALESCE(AVG(rs.surface_score), 0) AS avg_surface
-            FROM road_segments rs, pts
-            WHERE ST_DWithin(rs.geometry, pts.pt, 0.001)
-              AND rs.length_m > 10
-        """)
-        result = await db.execute(query)
-        row = result.fetchone()
-        group_scores.append((start, end, row.avg_score if row else 0, row.avg_surface if row else 0))
+    for gidx, (start, end, _points) in enumerate(groups):
+        score, surface = rows.get(gidx, (0, 0))
+        group_scores.append((start, end, score, surface))
 
     if not group_scores:
         return []
@@ -365,6 +426,24 @@ async def detect_road_quality_drop(db: AsyncSession, route: RouteResult) -> list
 
     for start, end, score, surface in group_scores:
         if score < route_avg * 0.5 and score < 0.25:
+            mid_idx = (start + end) // 2
+            mid_pt = route.shape[min(mid_idx, len(route.shape) - 1)]
+            # Suggest adding a bypass waypoint slightly offset from the bad section
+            offset_lng = mid_pt[0] + 0.005  # ~500m offset
+            offset_lat = mid_pt[1] + 0.005
+
+            fixes = [
+                AnomalyFix(
+                    action="add_waypoint",
+                    suggested_coord=[offset_lng, offset_lat],
+                    description="Add a waypoint to bypass this poor road section",
+                ),
+                AnomalyFix(
+                    action="no_action",
+                    description="Ignore — road conditions may be acceptable",
+                ),
+            ]
+
             anomalies.append(RouteAnomaly(
                 type=AnomalyType.road_quality_drop,
                 severity=AnomalySeverity.warning,
@@ -381,10 +460,8 @@ async def detect_road_quality_drop(db: AsyncSession, route: RouteResult) -> list
                 ),
                 metric_value=score,
                 metric_threshold=route_avg * 0.5,
-                fix=AnomalyFix(
-                    action="no_action",
-                    description="Consider adding a waypoint to route around this section",
-                ),
+                fix=fixes[0],
+                fixes=fixes,
             ))
 
     return anomalies[:3]  # Limit to avoid overwhelming the UI
@@ -457,11 +534,18 @@ async def detect_missed_roads(db: AsyncSession, route: RouteResult) -> list[Rout
                     ),
                     metric_value=row.composite_moto_score,
                     metric_threshold=0.55,
-                    fix=AnomalyFix(
+                    fix=(missed_fix := AnomalyFix(
                         action="add_waypoint",
                         suggested_coord=[row.lng, row.lat],
                         description=f"Add waypoint at {road_name} to route through this scenic road",
-                    ),
+                    )),
+                    fixes=[
+                        missed_fix,
+                        AnomalyFix(
+                            action="no_action",
+                            description="Ignore — current route may be preferable",
+                        ),
+                    ],
                 ))
 
     # Deduplicate by road name
@@ -491,7 +575,7 @@ async def analyze_route(
     geometry_anomalies.extend(detect_backtracking(waypoints, route))
     geometry_anomalies.extend(detect_close_proximity(waypoints, route))
     geometry_anomalies.extend(detect_detour_ratio(waypoints, route))
-    geometry_anomalies.extend(detect_u_turns(route))
+    geometry_anomalies.extend(detect_u_turns(route, waypoints))
 
     # Phase 2: PostGIS checks (parallel)
     db_results = await asyncio.gather(

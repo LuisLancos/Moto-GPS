@@ -15,15 +15,43 @@ Moto-GPS uses a **Route-Score-Rerank** strategy:
 
 ## Features
 
-- **Route planning** with scenic/balanced/fast presets and custom preference sliders
+### Route Planning
+- **Scenic / Balanced / Fast** presets with custom preference sliders
 - **Intelligent scoring** of every UK road segment on 5 dimensions (curvature, surface, scenic, urban density, elevation)
-- **Route analysis** that detects 8 types of anomalies and suggests fixes
-- **GPX import/export** compatible with Garmin, Calimoto, Kurviger, Google Earth
-- **Saved trips** with route metadata, scores, and route type
-- **Address/postcode search** via Nominatim (OSM geocoding)
-- **Drag-and-drop waypoint reordering** with auto-recalculate
-- **Click-on-route insertion** of intermediate waypoints
+- **Route analysis** detecting 8 anomaly types with multiple fix options and one-click map navigation
 - **Road score overlay** — colour-coded map layer showing road quality (red to green)
+
+### Multi-Day Trip Planning
+- Plan a complete trip as one continuous route, then split into daily segments
+- **Auto-split** by target daily distance, or manually toggle overnight stops
+- Each day has its own name, description, stats, and colour on the map
+- **Day view** zooms into a single day; **Full Trip** shows everything
+- Per-day and whole-trip GPX export/import
+
+### Map Interaction
+- **Click to add waypoints** — smart insertion at the closest route segment (not just appended)
+- **Drag waypoints** with automatic snap-to-nearest-road (via Valhalla locate API)
+- **Click to select** a waypoint — shows popup with coordinates and delete button
+- **Right-click context menu** — add/insert waypoint, recalculate route, delete nearby waypoint
+- **Manual recalculate** — edit multiple waypoints, then recalculate once (amber "Recalculate" button)
+
+### Import & Export
+- **Import a single route** (.gpx) — extracts smart waypoints from tracks, routes, or waypoint elements
+- **Import a multi-day trip** (.zip of GPX files) — each file becomes a day
+- **Export route** as compact GPX with navigation points only (turns, junctions, roundabouts)
+- **Export per-day** or **all days as ZIP** from saved multi-day trips
+- **Import a day** into an existing trip (replace or append)
+- Compatible with Garmin, Calimoto, Kurviger, Google Earth
+
+### Saved Trips
+- **Save and update in place** — editing a loaded trip saves directly (no re-entering the name)
+- **Save As New** for creating copies
+- Shows loaded trip name in the header: "Editing: London to Bath 2-Day Tour"
+- Multi-day trips show a day count badge in the list
+
+### Other
+- **Address/postcode search** via Nominatim (OSM geocoding)
+- **Drag-and-drop waypoint reordering** in the side panel
 - **Responsive PWA** — works on desktop and mobile, installable via "Add to Home Screen"
 
 ## Quick Start
@@ -154,18 +182,35 @@ Route planning for a 170-mile route (e.g., Midlands to Southend-on-Sea):
 - [x] Core routing with Valhalla motorcycle profile
 - [x] 5-dimension road scoring pipeline (curvature, surface, scenic, urban, elevation)
 - [x] Route-Score-Rerank with parallel fan-out
-- [x] Route analysis with 8 anomaly detectors
-- [x] GPX import/export
-- [x] Saved trips with metadata
+- [x] Route analysis with 8 anomaly detectors + multiple fix options + map navigation
+- [x] Multi-day trip planning with day overlays, auto-split, per-day view
+- [x] GPX import/export (single route, multi-day ZIP, per-day)
+- [x] Smart waypoint insertion (closest segment) + snap-to-road drag
+- [x] Right-click context menu on map
+- [x] Saved trips with in-place save/update
 - [x] Address/postcode search
 - [x] Drag-and-drop waypoint management
 - [x] Responsive PWA
 - [ ] User accounts and ride history
 - [ ] Preference learning from ride data
-- [ ] Elevation profile visualization
+- [ ] Elevation profile visualisation
 - [ ] React Native mobile app
 - [ ] Europe-wide road data
 
 ## Licence
 
-Private — all rights reserved.
+MIT License. See [LICENSE](LICENSE) for details.
+
+This project uses several open-source components with compatible licences:
+
+| Component | Licence | Notes |
+|-----------|---------|-------|
+| [Valhalla](https://github.com/valhalla/valhalla) | MIT | Routing engine |
+| [Martin](https://github.com/maplibre/martin) | Apache-2.0 OR MIT | Vector tile server |
+| [PostGIS](https://postgis.net/) | GPLv2+ | Used as Docker runtime dependency (not distributed) |
+| [PostgreSQL](https://www.postgresql.org/) | PostgreSQL License (BSD-like) | Database |
+| [MapLibre GL JS](https://github.com/maplibre/maplibre-gl-js) | BSD-3-Clause | Map rendering |
+| [OpenStreetMap data](https://www.openstreetmap.org/copyright) | ODbL | Road data — attribution required |
+| SRTM elevation data | Public domain | NASA/USGS |
+
+When using OpenStreetMap data, include: **"Data &copy; OpenStreetMap contributors, ODbL"**

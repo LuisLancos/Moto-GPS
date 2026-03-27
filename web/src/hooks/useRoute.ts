@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import type {
   Waypoint,
   RouteType,
@@ -59,6 +59,16 @@ export function useRoute() {
     });
   }, []);
 
+  const moveWaypoint = useCallback((index: number, newLat: number, newLng: number) => {
+    setWaypoints((prev) => {
+      if (index < 0 || index >= prev.length) return prev;
+      const next = [...prev];
+      next[index] = { ...next[index], lat: newLat, lng: newLng };
+      return next;
+    });
+    // Auto-reroute is handled by the existing waypointsKey useEffect
+  }, []);
+
   const reorderWaypoints = useCallback((fromIndex: number, toIndex: number) => {
     setWaypoints((prev) => {
       if (fromIndex === toIndex) return prev;
@@ -93,6 +103,9 @@ export function useRoute() {
       );
       setRoutes(response.routes);
       setSelectedRouteIndex(0);
+      // Mark route as fresh
+      lastCalcKeyRef.current = JSON.stringify(waypoints.map((w) => [w.lat, w.lng]));
+      setRouteStale(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Route planning failed");
       setRoutes([]);
@@ -101,26 +114,31 @@ export function useRoute() {
     }
   }, [waypoints, routeType, preferences]);
 
-  // ---------- Auto-recalculate when waypoints change (if route was already planned) ----------
-  const waypointsKey = JSON.stringify(waypoints.map((w) => [w.lat, w.lng]));
-  const prevKeyRef = useRef(waypointsKey);
+  // ---------- Clear stale routes when waypoints drop below 2 ----------
   const hasRoutes = routes.length > 0;
 
   useEffect(() => {
-    // Skip on first render (mount)
-    if (waypointsKey === prevKeyRef.current) return;
-    prevKeyRef.current = waypointsKey;
-
-    // Only auto-recalculate if we already had routes and still have 2+ waypoints
-    if (hasRoutes && waypoints.length >= 2) {
-      // Debounce 600ms — prevents hammering API during rapid drag-and-drop
-      const timer = setTimeout(() => {
-        calculateRoute();
-      }, 600);
-      return () => clearTimeout(timer);
+    if (waypoints.length < 2 && hasRoutes) {
+      setRoutes([]);
+      setSelectedRouteIndex(0);
+      setAnalysis(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [waypointsKey]); // deliberately minimal deps to avoid infinite loops
+  }, [waypoints.length]);
+
+  // Track whether waypoints changed since last calculation (show "Recalculate" hint)
+  const [routeStale, setRouteStale] = useState(false);
+  const waypointsKey = useMemo(
+    () => JSON.stringify(waypoints.map((w) => [w.lat, w.lng])),
+    [waypoints],
+  );
+  const lastCalcKeyRef = useRef("");
+
+  useEffect(() => {
+    if (hasRoutes && waypointsKey !== lastCalcKeyRef.current) {
+      setRouteStale(true);
+    }
+  }, [waypointsKey, hasRoutes]);
 
   // Load a saved trip: restore waypoints, route type, preferences, and optionally the saved route
   const loadTrip = useCallback(
@@ -135,9 +153,22 @@ export function useRoute() {
       setPreferences(tripPreferences);
       setError(null);
 
-      if (savedRoute) {
-        setRoutes([savedRoute]);
+      if (savedRoute && savedRoute.shape && savedRoute.shape.length > 0) {
+        // Ensure the route has required fields with defaults
+        const fullRoute: RouteResult = {
+          distance_m: savedRoute.distance_m || 0,
+          time_s: savedRoute.time_s || 0,
+          shape: savedRoute.shape,
+          legs: savedRoute.legs || [],
+          maneuvers: savedRoute.maneuvers || [],
+          moto_score: savedRoute.moto_score ?? null,
+          valhalla_params: savedRoute.valhalla_params || {},
+        };
+        setRoutes([fullRoute]);
         setSelectedRouteIndex(0);
+        // Mark as freshly loaded (not stale)
+        lastCalcKeyRef.current = JSON.stringify(tripWaypoints.map((w) => [w.lat, w.lng]));
+        setRouteStale(false);
       } else {
         setRoutes([]);
         setSelectedRouteIndex(0);
@@ -225,12 +256,14 @@ export function useRoute() {
     addWaypoint,
     insertWaypoint,
     removeWaypoint,
+    moveWaypoint,
     reorderWaypoints,
     clearWaypoints,
     setSelectedRouteIndex,
     setRouteType,
     setCustomPreferences,
     calculateRoute,
+    routeStale,
     loadTrip,
     runAnalysis,
     applyFix,

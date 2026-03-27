@@ -195,8 +195,14 @@ WHERE name IS NOT NULL
 ORDER BY composite_moto_score DESC
 LIMIT 10;
 
--- Saved trips
+-- Saved routes (single-day)
 SELECT id, name, route_type, total_distance_m, created_at FROM saved_routes ORDER BY created_at DESC;
+
+-- Multi-day trips
+SELECT id, name, route_type, total_distance_m,
+       jsonb_array_length(day_overlays) AS days,
+       created_at
+FROM trips ORDER BY created_at DESC;
 ```
 
 ### Valhalla (Routing Engine)
@@ -371,17 +377,18 @@ Moto-GPS/
       main.py                  ← FastAPI app entry point
       config.py                ← Pydantic settings (reads .env)
       api/
-        routes.py              ← POST /api/route + /api/route/analyze
-        trips.py               ← Saved trips CRUD
-        gpx.py                 ← GPX import/export
+        routes.py              ← POST /api/route + /api/route/analyze + /api/route/snap
+        trips.py               ← Saved routes CRUD (single-day)
+        trip_planner.py        ← Multi-day trips: CRUD, auto-split, per-day GPX, import
+        gpx.py                 ← GPX import/export (single route + trip ZIP)
       services/
         valhalla_client.py     ← HTTP client to Valhalla (persistent connection)
         road_scorer.py         ← PostGIS spatial scoring
-        route_analyzer.py      ← Anomaly detection (8 detectors)
+        route_analyzer.py      ← Anomaly detection (8 detectors, multiple fix options)
         scenic_attractors.py   ← Find nearby scenic roads
         route_cache.py         ← In-memory TTL cache
       models/
-        route.py               ← All Pydantic models (route, analysis, anomalies)
+        route.py               ← All Pydantic models (route, analysis, anomalies, multi-day)
       db/
         database.py            ← SQLAlchemy async engine + session pool
 
@@ -403,12 +410,27 @@ Moto-GPS/
         layout.tsx             ← Root layout
         page.tsx               ← Main page (map + panel)
       components/
-        map/                   ← Map, markers, route layers, score overlay
+        map/                   ← Map, markers, route layers, score overlay, context menu
+          Map.tsx              ← MapLibre wrapper with route/day/anomaly layers
+          WaypointMarkers.tsx  ← Draggable, selectable markers with popup
+          RouteLayer.tsx       ← Standard route polyline
+          DayRouteLayer.tsx    ← Per-day coloured route segments
+          ScoreOverlay.tsx     ← Road score colour overlay (Martin tiles)
+          MapContextMenu.tsx   ← Right-click context menu
         route/                 ← Panel, stats, analysis, trips, preferences
+          RoutePanel.tsx       ← Main sidebar (orchestrates all sub-components)
+          RouteAnalysis.tsx    ← Anomaly cards with 📍 Show + multiple fixes
+          DayPlannerPanel.tsx  ← Multi-day: auto-split, day cards, per-day GPX
+          SavedTrips.tsx       ← Trip list with multi-day badges
+          WaypointList.tsx     ← Search + drag-and-drop waypoint list
+          RouteTypeSelector.tsx← Scenic/balanced/fast presets
+          RouteStats.tsx       ← Distance, time, score, turn-by-turn
+          SaveTripDialog.tsx   ← Name + description modal
       lib/
-        api.ts                 ← API client functions
+        api.ts                 ← API client (routes, trips, multi-day, GPX, snap)
         types.ts               ← TypeScript types (mirrors backend models)
-        geo.ts                 ← Geospatial utilities
+        geo.ts                 ← Geospatial utilities (findInsertIndex)
       hooks/
-        useRoute.ts            ← Route state management + auto-recalculate
+        useRoute.ts            ← Route state (waypoints, routes, stale indicator, analysis)
+        useTripPlanner.ts      ← Multi-day state (day overlays, overnight stops, selected day)
 ```

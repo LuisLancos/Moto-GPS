@@ -19,6 +19,7 @@ interface RouteAnalysisProps {
   loading: boolean;
   onApplyFix: (anomaly: RouteAnomaly) => void;
   onHighlightAnomaly: (index: number | null) => void;
+  onNavigateToAnomaly: (anomaly: RouteAnomaly) => void;
 }
 
 export function RouteAnalysis({
@@ -26,6 +27,7 @@ export function RouteAnalysis({
   loading,
   onApplyFix,
   onHighlightAnomaly,
+  onNavigateToAnomaly,
 }: RouteAnalysisProps) {
   if (loading) {
     return (
@@ -96,29 +98,47 @@ export function RouteAnalysis({
               </div>
             )}
 
-            {/* Fix button */}
-            {anomaly.fix.action !== "no_action" && (
+            {/* Action buttons row */}
+            <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+              {/* Navigate to issue */}
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onApplyFix(anomaly);
+                  onNavigateToAnomaly(anomaly);
                 }}
-                className={`
-                  self-start mt-0.5 text-xs font-medium px-2.5 py-1 rounded
-                  transition-colors border
-                  ${style.border} ${style.text}
-                  hover:bg-white/5
-                `}
+                className="text-xs font-medium px-2 py-1 rounded transition-colors border border-zinc-600 text-zinc-300 hover:bg-zinc-700"
               >
-                {anomaly.fix.action === "remove_waypoint" && "Remove waypoint"}
-                {anomaly.fix.action === "add_waypoint" && "Add suggested waypoint"}
-                {anomaly.fix.action === "move_waypoint" && "Move waypoint"}
-                {anomaly.fix.action === "reorder_waypoints" && "Reorder waypoints"}
+                📍 Show
               </button>
-            )}
 
-            {/* No-action hint */}
-            {anomaly.fix.action === "no_action" && (
+              {/* Fix options — show all fixes from anomaly.fixes if present, else fall back to single fix */}
+              {(anomaly.fixes && anomaly.fixes.length > 0 ? anomaly.fixes : anomaly.fix.action !== "no_action" ? [anomaly.fix] : []).map((fix, fixIdx) => {
+                if (fix.action === "no_action") return null;
+                const labels: Record<string, string> = {
+                  remove_waypoint: "Remove waypoint",
+                  add_waypoint: "Add waypoint",
+                  move_waypoint: "Move waypoint",
+                  reorder_waypoints: "Reorder",
+                };
+                return (
+                  <button
+                    key={fixIdx}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      // Apply this specific fix
+                      onApplyFix({ ...anomaly, fix });
+                    }}
+                    className={`text-xs font-medium px-2 py-1 rounded transition-colors border ${style.border} ${style.text} hover:bg-white/5`}
+                    title={fix.description}
+                  >
+                    {labels[fix.action] || fix.action}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* No-action hint (when only fix is no_action) */}
+            {(!anomaly.fixes || anomaly.fixes.length === 0) && anomaly.fix.action === "no_action" && (
               <p className="text-[10px] text-zinc-600 italic">
                 {anomaly.fix.description}
               </p>

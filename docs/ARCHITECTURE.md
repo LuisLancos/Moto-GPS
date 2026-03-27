@@ -108,7 +108,70 @@ After a route is planned, the analysis system runs 8 detectors to find problems 
 - Road quality drop — a section scores much lower than the route average
 - Missed high-scoring road — a scenic road within 2km wasn't used
 
-Each anomaly includes a **fix action** (remove/add/move waypoint) that the user can apply with one click. Applying a fix triggers an automatic re-route.
+Each anomaly includes **multiple fix options** (e.g., "Move waypoint" + "Remove waypoint" + "Ignore"). The user can:
+- Click **"📍 Show"** to zoom the map to the anomaly location with a coloured highlight line
+- Click any fix option to apply it
+- Fixes update the waypoints and trigger a manual recalculate
+
+## Multi-Day Trip Planning
+
+Multi-day trips are planned as **one continuous route** with **day overlays** — lenses that define where each day starts and ends.
+
+```
+TRIP = ONE continuous route planned as a whole
+       A ──── B ──── C ──── D ──── E ──── F
+                     🌙           🌙
+                  (overnight)   (overnight)
+
+Day overlays (lenses into the master route):
+  Day 1:  A ──── B ──── C
+  Day 2:                C ──── D
+  Day 3:                       D ──── E ──── F
+```
+
+**Key principles:**
+- The trip is ALWAYS stored as one set of waypoints + one route
+- Days are defined by marking certain waypoints as "overnight stops"
+- Days share boundary waypoints (C connects Day 1 end and Day 2 start)
+- Editing in "Day 2 view" also modifies the full trip
+- Each day has its own name, description, stats, and exportable GPX
+
+**Auto-split algorithm:** Given a target daily distance (e.g., 400km), walks through legs accumulating distance and creates day boundaries at the nearest waypoint to each target. Prefers labelled waypoints as boundaries.
+
+**Database:** Multi-day trips are stored in the `trips` table (separate from `saved_routes`). Day overlays are stored as a JSONB array of `{day, name, description, start_waypoint_idx, end_waypoint_idx}`.
+
+## Map Interaction
+
+### Smart Waypoint Insertion
+
+When a route exists, clicking ANYWHERE on the map inserts the new waypoint at the closest segment position (using `findInsertIndex` from `geo.ts`), not appended to the end. Only when no route exists does a click append.
+
+### Snap-to-Road
+
+When a waypoint is dragged, it snaps to the nearest motorcycle-routable road using Valhalla's `/locate` API. The snap request returns the correlated lat/lng on the nearest road edge.
+
+### Right-Click Context Menu
+
+Right-clicking on the map shows:
+- "📍 Add waypoint here" — smart insert at closest segment
+- "➕ Insert into route here" — explicit route insertion
+- "🔄 Recalculate route"
+- "🗑️ Delete waypoint N" — if right-clicked near a waypoint
+
+### Manual Recalculate
+
+Route does NOT auto-recalculate on every change. Instead:
+- Edit multiple waypoints (move, add, delete, reorder)
+- The "Plan Route" button turns amber: "🔄 Recalculate"
+- Click once to recalculate with all changes applied
+- Map zoom/position is preserved during edits
+
+## Save / Update Flow
+
+- **No trip loaded (new route):** 💾+ opens Save dialog → creates new trip
+- **Trip loaded (editing):** 💾 quick-saves in place → updates the same trip
+- **Trip loaded, want a copy:** 💾+ opens Save dialog → creates new trip
+- Header shows "Editing: Trip Name" when a loaded trip is active
 
 ## Database Schema
 
@@ -137,7 +200,7 @@ The core data table. Each row is a single OSM way segment.
 
 ### saved_routes
 
-User-saved trips with full route data.
+Single-day saved routes with full route data.
 
 | Column | Type | Purpose |
 |--------|------|---------|
@@ -149,6 +212,22 @@ User-saved trips with full route data.
 | `route_data` | JSONB | Full RouteResult (shape, maneuvers, scores) |
 | `total_distance_m`, `total_time_s`, `total_moto_score` | REAL | Summary stats |
 
+### trips
+
+Multi-day trips with day overlays. Stores the full route + day boundary metadata.
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `id` | UUID | Primary key |
+| `name`, `description` | TEXT | Trip metadata |
+| `route_type` | TEXT | scenic / balanced / fast |
+| `preferences` | JSONB | Scoring weights |
+| `waypoints` | JSONB | ALL waypoints for the full trip |
+| `route_data` | JSONB | Full RouteResult (entire trip) |
+| `day_overlays` | JSONB | Array of `{day, name, description, start_waypoint_idx, end_waypoint_idx}` |
+| `daily_target_m` | REAL | Target daily distance used for auto-split |
+| `total_distance_m`, `total_time_s`, `total_moto_score` | REAL | Summary stats |
+
 ### user_preferences
 
 Default scoring weights (single-user, phase 1).
@@ -158,23 +237,29 @@ Default scoring weights (single-user, phase 1).
 Single-page app with a map and side panel:
 
 ```
-page.tsx (main page)
+page.tsx (main orchestrator)
 ├── Map.tsx (MapLibre GL)
-│   ├── WaypointMarkers.tsx (click-to-add, draggable)
+│   ├── WaypointMarkers.tsx (draggable, selectable, snap-to-road, popup)
 │   ├── RouteLayer.tsx (polyline renderer, multi-route)
-│   └── ScoreOverlay.tsx (colour-coded road quality)
+│   ├── DayRouteLayer.tsx (per-day coloured route segments)
+│   ├── ScoreOverlay.tsx (colour-coded road quality from Martin tiles)
+│   └── MapContextMenu.tsx (right-click: add/insert/delete/recalculate)
 │
 ├── RoutePanel.tsx (side panel / bottom sheet)
-│   ├── SavedTrips.tsx (load/delete saved routes)
+│   ├── SavedTrips.tsx (load/delete, multi-day badges, per-trip GPX export)
 │   ├── WaypointList.tsx (search + drag-and-drop list)
-│   ├── RouteTypeSelector.tsx (scenic/balanced/fast + settings)
+│   ├── RouteTypeSelector.tsx (scenic/balanced/fast + custom settings)
 │   ├── RouteStats.tsx (distance, time, score, turn-by-turn)
-│   └── RouteAnalysis.tsx (anomaly cards + fix buttons)
+│   ├── RouteAnalysis.tsx (anomaly cards + 📍 Show + multiple fix buttons)
+│   └── DayPlannerPanel.tsx (multi-day: auto-split, day cards, per-day export/import)
 │
 └── SaveTripDialog.tsx (save route modal)
 ```
 
-**State management**: `useRoute` hook manages all route state (waypoints, routes, analysis, preferences). Auto-recalculates on waypoint changes (600ms debounce). Auto-analyses after route selection (300ms debounce).
+**State management**:
+- `useRoute` hook — waypoints, routes, analysis, preferences, stale indicator. Does NOT auto-recalculate; user triggers manually.
+- `useTripPlanner` hook — day overlays, selected day, daily target, overnight stops. Reads from `useRoute`'s state (never duplicates it).
+- Loaded trip tracking — `loadedTripId`, `loadedTripName`, `loadedTripIsMultiday` for in-place save vs save-as-new.
 
 ## Performance Optimisations
 

@@ -3,26 +3,8 @@
 import { useState } from "react";
 import type { TripSummary } from "@/lib/types";
 import { ROUTE_TYPE_META } from "@/lib/types";
-import { exportTripGpxUrl } from "@/lib/api";
-
-function formatDistance(m: number | null): string {
-  if (!m) return "—";
-  if (m < 1000) return `${Math.round(m)}m`;
-  return `${(m / 1000).toFixed(1)} km`;
-}
-
-function formatTime(s: number | null): string {
-  if (!s) return "—";
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  return h > 0 ? `${h}h ${m}m` : `${m}m`;
-}
-
-function formatDate(iso: string): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
-}
+import { exportTripGpxUrl, exportAllDaysGpxUrl } from "@/lib/api";
+import { formatDistance, formatTime, formatDate } from "@/lib/formatters";
 
 interface SavedTripsProps {
   trips: TripSummary[];
@@ -75,12 +57,17 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh }: Sa
                 className="group flex flex-col gap-1 rounded-lg bg-zinc-800 border border-zinc-700 hover:border-zinc-500 px-3 py-2.5 transition-colors cursor-pointer"
                 onClick={() => !isConfirming && onSelect(trip)}
               >
-                {/* Top row: name + route type badge */}
+                {/* Top row: name + badges */}
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-zinc-200 truncate pr-2">
                     {trip.name}
                   </span>
                   <div className="flex items-center gap-1.5 shrink-0">
+                    {trip.is_multiday && trip.day_count && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-600/40 text-amber-300">
+                        🗓️ {trip.day_count} days
+                      </span>
+                    )}
                     {meta && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-700/60 text-zinc-400">
                         {meta.icon} {meta.label}
@@ -131,14 +118,25 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh }: Sa
                   </div>
                 ) : (
                   <div className="hidden group-hover:flex items-center gap-3 pt-1 border-t border-zinc-700/50">
-                    <a
-                      href={exportTripGpxUrl(trip.id)}
-                      onClick={(e) => e.stopPropagation()}
-                      className="text-[10px] text-zinc-500 hover:text-blue-400 transition-colors"
-                      title="Export as GPX"
-                    >
-                      📤 GPX
-                    </a>
+                    {trip.is_multiday ? (
+                      <a
+                        href={exportAllDaysGpxUrl(trip.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-[10px] text-zinc-500 hover:text-blue-400 transition-colors"
+                        title="Export all days as ZIP"
+                      >
+                        📤 All Days (ZIP)
+                      </a>
+                    ) : (
+                      <a
+                        href={exportTripGpxUrl(trip.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-[10px] text-zinc-500 hover:text-blue-400 transition-colors"
+                        title="Export as GPX"
+                      >
+                        📤 GPX
+                      </a>
+                    )}
                     <button
                       onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(trip.id); }}
                       className="text-[10px] text-zinc-500 hover:text-red-400 transition-colors"

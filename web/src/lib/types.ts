@@ -94,10 +94,18 @@ export interface RouteManeuver {
   end_shape_index: number;
 }
 
+export interface RouteLeg {
+  distance_m: number;
+  time_s: number;
+  shape_start_idx: number;
+  shape_end_idx: number;
+}
+
 export interface RouteResult {
   distance_m: number;
   time_s: number;
   shape: [number, number][]; // [lng, lat][]
+  legs: RouteLeg[];
   maneuvers: RouteManeuver[];
   moto_score: number | null;
   valhalla_params: Record<string, number>;
@@ -121,6 +129,9 @@ export interface TripSummary {
   waypoint_count: number;
   created_at: string;
   updated_at: string;
+  // Multi-day fields (present when loaded from trips table)
+  is_multiday?: boolean;
+  day_count?: number;
 }
 
 export interface TripDetail extends TripSummary {
@@ -172,10 +183,50 @@ export interface RouteAnomaly {
   metric_value: number | null;
   metric_threshold: number | null;
   fix: AnomalyFix;
+  fixes: AnomalyFix[];  // Multiple fix options
 }
 
 export interface RouteAnalysisResponse {
   anomalies: RouteAnomaly[];
   overall_health: "good" | "fair" | "poor";
   analysis_time_ms: number;
+}
+
+// ---------- Multi-Day Trip Planning ----------
+
+export interface DayOverlay {
+  day: number;
+  name?: string;
+  description?: string;
+  start_waypoint_idx: number;
+  end_waypoint_idx: number;
+}
+
+export interface DayOverlayWithStats extends DayOverlay {
+  distance_m: number;
+  time_s: number;
+  moto_score: number | null;
+  waypoint_count: number;
+  shape_start_idx: number;
+  shape_end_idx: number;
+}
+
+export interface MultiDayTripSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  route_type: string;
+  day_count: number;
+  total_distance_m: number;
+  total_time_s: number;
+  total_moto_score: number | null;
+  created_at: string;
+}
+
+export interface MultiDayTripDetail extends MultiDayTripSummary {
+  preferences: RoutePreferences;
+  waypoints: Waypoint[];
+  route_data: RouteResult | null;
+  day_overlays: DayOverlay[];
+  daily_target_m: number | null;
 }

@@ -101,23 +101,31 @@ async def get_routes(
         summary = trip.get("summary", {})
         legs_data = trip.get("legs", [])
 
-        # Concatenate shapes from ALL legs (fixes multi-waypoint routes)
+        # Concatenate shapes from ALL legs, tracking per-leg offsets
+        # for day-slicing support
         shape: list[list[float]] = []
+        leg_shape_offsets: list[tuple[int, int]] = []  # (start_idx, end_idx) per leg
         for leg in legs_data:
             leg_shape = _decode_polyline(leg.get("shape", ""))
+            start_idx = len(shape)
             if shape and leg_shape:
                 # Skip first point of subsequent legs (duplicate of previous leg's last point)
                 leg_shape = leg_shape[1:]
             shape.extend(leg_shape)
+            end_idx = len(shape) - 1
+            leg_shape_offsets.append((start_idx, max(start_idx, end_idx)))
 
         legs = []
         maneuvers = []
-        for leg in legs_data:
+        for leg_idx, leg in enumerate(legs_data):
+            s_start, s_end = leg_shape_offsets[leg_idx] if leg_idx < len(leg_shape_offsets) else (0, 0)
             legs.append(
                 RouteLeg(
                     distance_m=leg.get("summary", {}).get("length", 0) * 1000,
                     time_s=leg.get("summary", {}).get("time", 0),
                     shape=[],
+                    shape_start_idx=s_start,
+                    shape_end_idx=s_end,
                 )
             )
             for m in leg.get("maneuvers", []):
