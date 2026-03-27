@@ -13,6 +13,11 @@ class Settings(BaseSettings):
 
     backend_url: str = "http://localhost:8000"
 
+    # JWT authentication
+    jwt_secret: str = "change-me-in-production"
+    jwt_algorithm: str = "HS256"
+    jwt_expire_minutes: int = 1440  # 24 hours
+
     @property
     def database_url(self) -> str:
         return (

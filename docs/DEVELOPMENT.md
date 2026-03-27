@@ -35,7 +35,7 @@ cd Moto-GPS
 cp .env.example .env
 ```
 
-Edit `.env` and set your MapTiler API key:
+Edit `.env` and set your MapTiler API key, JWT secret, and admin credentials:
 
 ```env
 POSTGRES_USER=motogps
@@ -51,6 +51,14 @@ MARTIN_URL=http://localhost:3002
 NEXT_PUBLIC_MAPTILER_KEY=your_key_here
 
 BACKEND_URL=http://localhost:8000
+
+# JWT Authentication (CHANGE IN PRODUCTION!)
+JWT_SECRET=change-me-in-production
+
+# Admin seed credentials (used by: python -m app.cli.seed_admin)
+ADMIN_EMAIL=admin@motogps.local
+ADMIN_NAME=Admin
+ADMIN_PASSWORD=change-me-in-production
 ```
 
 ### 2. Start Docker Services
@@ -129,6 +137,28 @@ curl http://localhost:8000/health
 # {"status":"ok","service":"moto-gps-api"}
 ```
 
+### 4b. Seed the Admin User (first time only)
+
+The platform uses invite-only registration, so you need an admin user to generate the first invite codes.
+
+```bash
+cd backend
+source .venv/bin/activate
+
+# Uses ADMIN_EMAIL, ADMIN_NAME, ADMIN_PASSWORD from .env
+python -m app.cli.seed_admin
+
+# Or override with CLI args:
+python -m app.cli.seed_admin --email admin@motogps.local --name Admin --password your-password
+```
+
+This creates the first admin user. If you had any saved routes/trips from before auth was added, they'll be assigned to this admin user.
+
+After seeding, you can:
+1. Log in at http://localhost:3001/login with the admin credentials
+2. Go to http://localhost:3001/admin to generate invite codes
+3. Share registration links (`/register?code=ABC`) with other users
+
 ### 5. Start the Web App
 
 ```bash
@@ -142,11 +172,15 @@ The dev server has hot-reload — changes to `.tsx`/`.ts` files reflect instantl
 
 ### 6. Verify Everything Works
 
-1. Open **http://localhost:3001** — you should see a map of the UK
-2. Click two points on the map to add waypoints
-3. Click **"Plan Route"** — routes should appear in 2-4 seconds
-4. Check the **Route Analysis** panel below route stats for anomaly detection
-5. Try the road score overlay toggle on the map (if Martin is healthy)
+1. Open **http://localhost:3001** -- you should see the login page
+2. Log in with the admin credentials from step 4b
+3. Go to **/admin** and generate an invite code
+4. Open **/register?code=YOUR_CODE** in an incognito window to test registration
+5. Back in the main window, click two points on the map to add waypoints
+6. Click **"Plan Route"** -- routes should appear in 2-4 seconds
+7. Check the **Route Analysis** panel below route stats for anomaly detection
+8. Try the road score overlay toggle on the map (if Martin is healthy)
+9. Save a trip, then try sharing it via the Groups page
 
 ## Docker Service Details
 
@@ -195,14 +229,40 @@ WHERE name IS NOT NULL
 ORDER BY composite_moto_score DESC
 LIMIT 10;
 
--- Saved routes (single-day)
-SELECT id, name, route_type, total_distance_m, created_at FROM saved_routes ORDER BY created_at DESC;
+-- Users
+SELECT id, name, email, is_admin, is_blocked, created_at FROM users ORDER BY created_at DESC;
 
--- Multi-day trips
-SELECT id, name, route_type, total_distance_m,
-       jsonb_array_length(day_overlays) AS days,
-       created_at
-FROM trips ORDER BY created_at DESC;
+-- Invite codes with status
+SELECT ic.code, ic.expires_at, ic.used_at, creator.name AS created_by, consumer.name AS used_by
+FROM invite_codes ic
+JOIN users creator ON creator.id = ic.created_by
+LEFT JOIN users consumer ON consumer.id = ic.used_by
+ORDER BY ic.created_at DESC;
+
+-- Saved routes (single-day) with owner
+SELECT sr.id, sr.name, sr.route_type, sr.total_distance_m, u.name AS owner, sr.created_at
+FROM saved_routes sr LEFT JOIN users u ON u.id = sr.user_id
+ORDER BY sr.created_at DESC;
+
+-- Multi-day trips with owner
+SELECT t.id, t.name, t.route_type, t.total_distance_m,
+       jsonb_array_length(t.day_overlays) AS days,
+       u.name AS owner, t.created_at
+FROM trips t LEFT JOIN users u ON u.id = t.user_id
+ORDER BY t.created_at DESC;
+
+-- Groups with member count
+SELECT g.name, g.target_date,
+       (SELECT count(*) FROM group_members gm WHERE gm.group_id = g.id) AS members,
+       (SELECT count(*) FROM group_shared_items gsi WHERE gsi.group_id = g.id) AS shared_items
+FROM adventure_groups g ORDER BY g.created_at DESC;
+
+-- Pending invitations
+SELECT gi.status, g.name AS group_name, u.name AS invited_user
+FROM group_invitations gi
+JOIN adventure_groups g ON g.id = gi.group_id
+JOIN users u ON u.id = gi.invited_user_id
+WHERE gi.status = 'pending';
 ```
 
 ### Valhalla (Routing Engine)
@@ -288,6 +348,21 @@ docker compose restart valhalla
 docker stats
 ```
 
+## Database Migrations
+
+If you already have a running Moto-GPS database from before user management was added, run the migration to add the new tables:
+
+```bash
+PGPASSWORD=motogps_dev psql -h localhost -p 5434 -U motogps -d motogps \
+  -f backend/app/db/migrations/001_users_and_groups.sql
+```
+
+This adds: `users`, `invite_codes`, `vehicles`, `adventure_groups`, `group_members`, `group_invitations`, `group_shared_items` tables, and adds `user_id` columns to `saved_routes` and `trips`.
+
+For fresh installs, `docker/postgres/init.sql` already includes all tables.
+
+After the migration, run `python -m app.cli.seed_admin` to create the first admin user and assign orphan routes/trips.
+
 ## Common Issues
 
 ### Valhalla shows "unhealthy"
@@ -349,88 +424,123 @@ docker compose restart martin
 | `POSTGRES_PORT` | `5434` | Backend, Pipeline | PostgreSQL external port |
 | `VALHALLA_URL` | `http://localhost:8010` | Backend | Valhalla routing API URL |
 | `MARTIN_URL` | `http://localhost:3002` | Web | Martin vector tile URL |
-| `NEXT_PUBLIC_MAPTILER_KEY` | — | Web | MapTiler API key for basemap tiles |
+| `NEXT_PUBLIC_MAPTILER_KEY` | -- | Web | MapTiler API key for basemap tiles |
 | `BACKEND_URL` | `http://localhost:8000` | Web | Backend API URL |
+| `JWT_SECRET` | `change-me-in-production` | Backend | Secret key for JWT signing (HS256). **Change in production!** |
+| `JWT_ALGORITHM` | `HS256` | Backend | JWT signing algorithm |
+| `JWT_EXPIRE_MINUTES` | `1440` | Backend | Token lifetime in minutes (default: 24 hours) |
+| `ADMIN_EMAIL` | `admin@motogps.local` | seed_admin CLI | Email for the seed admin user |
+| `ADMIN_NAME` | `Admin` | seed_admin CLI | Display name for the seed admin |
+| `ADMIN_PASSWORD` | `change-me-in-production` | seed_admin CLI | Password for the seed admin. **Change in production!** |
 
 ## Project File Structure
 
 ```
 Moto-GPS/
-  .env                        ← Your local config (gitignored)
-  .env.example                ← Template
-  docker-compose.yml          ← 3 Docker services
-  start.sh                    ← Quick start script
+  .env                        <- Your local config (gitignored)
+  .env.example                <- Template (includes JWT + admin seed vars)
+  docker-compose.yml          <- 3 Docker services
+  start.sh                    <- Quick start script
 
   docker/
-    postgres/init.sql          ← Database schema (PostGIS + tables + indexes)
-    valhalla/valhalla.json     ← Valhalla source config (concurrency, limits)
-    martin/config.yaml         ← Martin tile server config
+    postgres/init.sql          <- Database schema (PostGIS + all tables + indexes)
+    valhalla/valhalla.json     <- Valhalla source config (concurrency, limits)
+    martin/config.yaml         <- Martin tile server config
 
-  data/                        ← Docker volumes (gitignored, ~17GB total)
-    postgres/                  ← PostgreSQL data files (~8GB)
-    valhalla/                  ← Routing tiles + runtime config (~9GB)
-    elevation/                 ← SRTM elevation tiles
+  data/                        <- Docker volumes (gitignored, ~17GB total)
+    postgres/                  <- PostgreSQL data files (~8GB)
+    valhalla/                  <- Routing tiles + runtime config (~9GB)
+    elevation/                 <- SRTM elevation tiles
 
   backend/
     requirements.txt
     app/
-      main.py                  ← FastAPI app entry point
-      config.py                ← Pydantic settings (reads .env)
+      main.py                  <- FastAPI app entry point (registers all routers)
+      config.py                <- Pydantic settings (reads .env, includes JWT config)
+      auth/
+        __init__.py
+        jwt.py                 <- JWT token creation + validation (HS256)
+        passwords.py           <- bcrypt password hashing + verification
+        dependencies.py        <- FastAPI deps: get_current_user, get_current_admin, get_optional_user
+      cli/
+        __init__.py
+        seed_admin.py          <- CLI: create first admin user + assign orphan trips
       api/
-        routes.py              ← POST /api/route + /api/route/analyze + /api/route/snap
-        trips.py               ← Saved routes CRUD (single-day)
-        trip_planner.py        ← Multi-day trips: CRUD, auto-split, per-day GPX, import
-        gpx.py                 ← GPX import/export (single route + trip ZIP)
+        routes.py              <- POST /api/route + /api/route/analyze + /api/route/snap
+        trips.py               <- Saved routes CRUD (single-day, with ownership)
+        trip_planner.py        <- Multi-day trips: CRUD, auto-split, per-day GPX, import
+        gpx.py                 <- GPX import/export (single route + trip ZIP)
+        auth.py                <- Register, login, profile, change password
+        admin.py               <- User management, invite code generation/deletion
+        vehicles.py            <- Vehicle CRUD (type, brand, model, year, picture)
+        groups.py              <- Adventure groups, members, invitations, sharing, user search
       services/
-        valhalla_client.py     ← HTTP client to Valhalla (persistent connection)
-        road_scorer.py         ← PostGIS spatial scoring
-        route_analyzer.py      ← Anomaly detection (8 detectors, multiple fix options)
-        scenic_attractors.py   ← Find nearby scenic roads
-        route_cache.py         ← In-memory TTL cache
+        valhalla_client.py     <- HTTP client to Valhalla (persistent connection)
+        road_scorer.py         <- PostGIS spatial scoring
+        route_analyzer.py      <- Anomaly detection (8 detectors, multiple fix options)
+        scenic_attractors.py   <- Find nearby scenic roads
+        route_cache.py         <- In-memory TTL cache
       models/
-        route.py               ← All Pydantic models (route, analysis, anomalies, multi-day)
+        route.py               <- Pydantic models (route, analysis, trips, sharing/ownership)
+        group.py               <- Pydantic models (GroupCreate, InviteUserRequest, ShareItemRequest, etc.)
+        vehicle.py             <- Pydantic models (VehicleCreate, VehicleUpdate, VehicleResponse)
       db/
-        database.py            ← SQLAlchemy async engine + session pool
+        database.py            <- SQLAlchemy async engine + session pool
+        migrations/
+          001_users_and_groups.sql  <- Migration: users, invite codes, vehicles, groups, sharing
 
   pipeline/
-    run_pipeline.py            ← Pipeline orchestrator
-    download.py                ← Download OSM + SRTM data
-    osm_to_postgis.py          ← Import roads to PostGIS
-    curvature.py               ← Curvature scoring
-    surface_scorer.py          ← Surface quality scoring
-    urban_density.py           ← Urban vs rural scoring
-    road_classifier.py         ← Road classification
-    composite_scorer.py        ← Final weighted score
+    run_pipeline.py            <- Pipeline orchestrator
+    download.py                <- Download OSM + SRTM data
+    osm_to_postgis.py          <- Import roads to PostGIS
+    curvature.py               <- Curvature scoring
+    surface_scorer.py          <- Surface quality scoring
+    urban_density.py           <- Urban vs rural scoring
+    road_classifier.py         <- Road classification
+    composite_scorer.py        <- Final weighted score
 
   web/
     package.json
     next.config.ts
     src/
       app/
-        layout.tsx             ← Root layout
-        page.tsx               ← Main page (map + panel)
+        layout.tsx             <- Root layout (auth provider, nav bar)
+        page.tsx               <- Main page (map + panel)
+        login/page.tsx         <- Login page
+        register/page.tsx      <- Registration page (auto-fills invite code from URL)
+        admin/page.tsx         <- Admin panel: invite codes + user management
+        profile/page.tsx       <- User profile: edit info, vehicles, change password
+        groups/page.tsx        <- Adventure groups: create, manage, invitations, sharing
       components/
-        map/                   ← Map, markers, route layers, score overlay, context menu
-          Map.tsx              ← MapLibre wrapper with route/day/anomaly layers
-          WaypointMarkers.tsx  ← Draggable, selectable markers with popup
-          RouteLayer.tsx       ← Standard route polyline
-          DayRouteLayer.tsx    ← Per-day coloured route segments
-          ScoreOverlay.tsx     ← Road score colour overlay (Martin tiles)
-          MapContextMenu.tsx   ← Right-click context menu
-        route/                 ← Panel, stats, analysis, trips, preferences
-          RoutePanel.tsx       ← Main sidebar (orchestrates all sub-components)
-          RouteAnalysis.tsx    ← Anomaly cards with 📍 Show + multiple fixes
-          DayPlannerPanel.tsx  ← Multi-day: auto-split, day cards, per-day GPX
-          SavedTrips.tsx       ← Trip list with multi-day badges
-          WaypointList.tsx     ← Search + drag-and-drop waypoint list
-          RouteTypeSelector.tsx← Scenic/balanced/fast presets
-          RouteStats.tsx       ← Distance, time, score, turn-by-turn
-          SaveTripDialog.tsx   ← Name + description modal
+        auth/                  <- Authentication components
+          AuthProvider.tsx     <- Auth context provider (token, user state)
+          ProtectedRoute.tsx   <- Route guard for authenticated pages
+        nav/
+          NavBar.tsx           <- Top nav: user menu, invitation badge, admin link
+        map/                   <- Map, markers, route layers, score overlay, context menu
+          Map.tsx              <- MapLibre wrapper with route/day/anomaly layers
+          WaypointMarkers.tsx  <- Draggable, selectable markers with popup
+          RouteLayer.tsx       <- Standard route polyline
+          DayRouteLayer.tsx    <- Per-day coloured route segments
+          ScoreOverlay.tsx     <- Road score colour overlay (Martin tiles)
+          MapContextMenu.tsx   <- Right-click context menu
+        route/                 <- Panel, stats, analysis, trips, preferences
+          RoutePanel.tsx       <- Main sidebar (orchestrates all sub-components)
+          RouteAnalysis.tsx    <- Anomaly cards with Show + multiple fixes
+          DayPlannerPanel.tsx  <- Multi-day: auto-split, day cards, per-day GPX
+          SavedTrips.tsx       <- Trip list: ownership badges, group sharing, clone
+          WaypointList.tsx     <- Search + drag-and-drop waypoint list
+          RouteTypeSelector.tsx<- Scenic/balanced/fast presets
+          RouteStats.tsx       <- Distance, time, score, turn-by-turn
+          SaveTripDialog.tsx   <- Name + description modal
       lib/
-        api.ts                 ← API client (routes, trips, multi-day, GPX, snap)
-        types.ts               ← TypeScript types (mirrors backend models)
-        geo.ts                 ← Geospatial utilities (findInsertIndex)
+        api.ts                 <- API client (routes, trips, multi-day, GPX, snap)
+        authApi.ts             <- Auth API client (register, login, profile, password)
+        adminApi.ts            <- Admin API client (users, invite codes)
+        types.ts               <- TypeScript types (mirrors backend models + auth/group types)
+        geo.ts                 <- Geospatial utilities (findInsertIndex)
       hooks/
-        useRoute.ts            ← Route state (waypoints, routes, stale indicator, analysis)
-        useTripPlanner.ts      ← Multi-day state (day overlays, overnight stops, selected day)
+        useAuth.ts             <- Auth state (login, logout, token, user profile)
+        useRoute.ts            <- Route state (waypoints, routes, stale indicator, analysis)
+        useTripPlanner.ts      <- Multi-day state (day overlays, overnight stops, selected day)
 ```

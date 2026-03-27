@@ -9,6 +9,7 @@ import { SavedTrips } from "./SavedTrips";
 import { WaypointList } from "./WaypointList";
 import { DayPlannerPanel } from "./DayPlannerPanel";
 import type { DayOverlay, DayOverlayWithStats } from "@/lib/types";
+import type { UserGroup } from "@/lib/api";
 
 interface RoutePanelProps {
   waypoints: Waypoint[];
@@ -22,6 +23,7 @@ interface RoutePanelProps {
   // Saved trips
   trips: TripSummary[];
   tripsLoading: boolean;
+  myGroups?: UserGroup[];
   onRemoveWaypoint: (index: number) => void;
   onAddWaypoint: (wp: Waypoint) => void;
   onReorderWaypoints: (from: number, to: number) => void;
@@ -76,6 +78,7 @@ export function RoutePanel({
   routeStale,
   trips,
   tripsLoading,
+  myGroups,
   onRemoveWaypoint,
   onAddWaypoint,
   onReorderWaypoints,
@@ -172,6 +175,7 @@ export function RoutePanel({
         onSelect={onLoadTrip}
         onDelete={onDeleteTrip}
         onRefresh={onRefreshTrips}
+        myGroups={myGroups}
       />
 
       {/* Waypoints — search, list, drag-and-drop */}

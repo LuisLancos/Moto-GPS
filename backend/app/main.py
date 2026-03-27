@@ -8,6 +8,10 @@ from app.api.routes import router as routes_router
 from app.api.trips import router as trips_router
 from app.api.gpx import router as gpx_router
 from app.api.trip_planner import router as trip_planner_router
+from app.api.auth import router as auth_router
+from app.api.admin import router as admin_router
+from app.api.vehicles import router as vehicles_router
+from app.api.groups import router as groups_router
 from app.services.valhalla_client import close_client
 
 # Configure logging so timing info shows up
@@ -36,6 +40,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router, prefix="/api")
+app.include_router(admin_router, prefix="/api")
+app.include_router(vehicles_router, prefix="/api")
+app.include_router(groups_router, prefix="/api")
 app.include_router(routes_router, prefix="/api")
 app.include_router(trips_router, prefix="/api")
 app.include_router(gpx_router, prefix="/api")

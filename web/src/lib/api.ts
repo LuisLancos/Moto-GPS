@@ -12,6 +12,7 @@ import type {
   MultiDayTripSummary,
   MultiDayTripDetail,
 } from "./types";
+import { authFetch } from "./authApi";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -62,9 +63,8 @@ export async function planRoute(
     body.preferences = customPreferences;
   }
 
-  const res = await fetch(`${API_URL}/api/route`, {
+  const res = await authFetch("/api/route", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
 
@@ -79,13 +79,13 @@ export async function planRoute(
 // ---------- Saved Trips ----------
 
 export async function listTrips(): Promise<TripSummary[]> {
-  const res = await fetch(`${API_URL}/api/trips`);
+  const res = await authFetch("/api/trips");
   if (!res.ok) throw new Error("Failed to load trips");
   return res.json();
 }
 
 export async function getTrip(id: string): Promise<TripDetail> {
-  const res = await fetch(`${API_URL}/api/trips/${id}`);
+  const res = await authFetch(`/api/trips/${id}`);
   if (!res.ok) throw new Error("Trip not found");
   return res.json();
 }
@@ -96,14 +96,13 @@ export async function saveTrip(data: {
   route_type: string;
   waypoints: Waypoint[];
   preferences: RoutePreferences;
-  selected_route?: RouteResult;
+  route_data?: RouteResult;
   total_distance_m?: number;
   total_time_s?: number;
   total_moto_score?: number;
 }): Promise<TripDetail> {
-  const res = await fetch(`${API_URL}/api/trips`, {
+  const res = await authFetch("/api/trips", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
   if (!res.ok) {
@@ -117,9 +116,8 @@ export async function updateTripMeta(
   id: string,
   data: { name?: string; description?: string }
 ): Promise<TripSummary> {
-  const res = await fetch(`${API_URL}/api/trips/${id}`, {
+  const res = await authFetch(`/api/trips/${id}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error("Update failed");
@@ -127,7 +125,7 @@ export async function updateTripMeta(
 }
 
 export async function deleteTrip(id: string): Promise<void> {
-  const res = await fetch(`${API_URL}/api/trips/${id}`, { method: "DELETE" });
+  const res = await authFetch(`/api/trips/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error("Delete failed");
 }
 
@@ -137,9 +135,8 @@ export async function analyzeRoute(
   route: RouteResult,
   waypoints: Waypoint[],
 ): Promise<RouteAnalysisResponse> {
-  const res = await fetch(`${API_URL}/api/route/analyze`, {
+  const res = await authFetch("/api/route/analyze", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ route, waypoints }),
   });
   if (!res.ok) {
@@ -152,9 +149,8 @@ export async function analyzeRoute(
 // ---------- Snap to Road ----------
 
 export async function snapToRoad(lat: number, lng: number): Promise<{ lat: number; lng: number; snapped: boolean }> {
-  const res = await fetch(`${API_URL}/api/route/snap`, {
+  const res = await authFetch("/api/route/snap", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ lat, lng }),
   });
   if (!res.ok) return { lat, lng, snapped: false };
@@ -174,9 +170,8 @@ export async function autoSplitTrip(
   legs: { distance_m: number; time_s: number; shape_start_idx: number; shape_end_idx: number }[],
   dailyTargetM: number,
 ): Promise<{ day_overlays: DayOverlayWithStats[] }> {
-  const res = await fetch(`${API_URL}/api/trip-planner/auto-split`, {
+  const res = await authFetch("/api/trip-planner/auto-split", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       waypoints,
       legs: legs.map(l => ({ ...l, shape: [] })),
@@ -188,13 +183,13 @@ export async function autoSplitTrip(
 }
 
 export async function listMultiDayTrips(): Promise<MultiDayTripSummary[]> {
-  const res = await fetch(`${API_URL}/api/trip-planner/trips`);
+  const res = await authFetch("/api/trip-planner/trips");
   if (!res.ok) throw new Error("Failed to load trips");
   return res.json();
 }
 
 export async function getMultiDayTrip(id: string): Promise<MultiDayTripDetail> {
-  const res = await fetch(`${API_URL}/api/trip-planner/trips/${id}`);
+  const res = await authFetch(`/api/trip-planner/trips/${id}`);
   if (!res.ok) throw new Error("Trip not found");
   return res.json();
 }
@@ -212,9 +207,8 @@ export async function saveMultiDayTrip(data: {
   total_time_s: number;
   total_moto_score?: number;
 }): Promise<{ id: string }> {
-  const res = await fetch(`${API_URL}/api/trip-planner/trips`, {
+  const res = await authFetch("/api/trip-planner/trips", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
   if (!res.ok) {
@@ -230,14 +224,13 @@ export async function updateTrip(id: string, data: {
   route_type: string;
   waypoints: Waypoint[];
   preferences: RoutePreferences;
-  selected_route?: RouteResult;
+  route_data?: RouteResult;
   total_distance_m: number;
   total_time_s: number;
   total_moto_score?: number;
 }): Promise<{ id: string }> {
-  const res = await fetch(`${API_URL}/api/trips/${id}`, {
+  const res = await authFetch(`/api/trips/${id}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error("Update failed");
@@ -257,9 +250,8 @@ export async function updateMultiDayTrip(id: string, data: {
   total_time_s: number;
   total_moto_score?: number;
 }): Promise<{ id: string }> {
-  const res = await fetch(`${API_URL}/api/trip-planner/trips/${id}`, {
+  const res = await authFetch(`/api/trip-planner/trips/${id}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
   if (!res.ok) throw new Error("Update failed");
@@ -267,7 +259,7 @@ export async function updateMultiDayTrip(id: string, data: {
 }
 
 export async function deleteMultiDayTrip(id: string): Promise<void> {
-  const res = await fetch(`${API_URL}/api/trip-planner/trips/${id}`, { method: "DELETE" });
+  const res = await authFetch(`/api/trip-planner/trips/${id}`, { method: "DELETE" });
   if (!res.ok) throw new Error("Delete failed");
 }
 
@@ -275,7 +267,7 @@ export function exportAllDaysGpxUrl(tripId: string): string {
   return `${API_URL}/api/trip-planner/trips/${tripId}/gpx/all`;
 }
 
-// ---------- GPX Export/Import ----------
+// ---------- GPX Import ----------
 
 export async function importGpx(file: File): Promise<{
   name: string;
@@ -287,7 +279,7 @@ export async function importGpx(file: File): Promise<{
 }> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API_URL}/api/gpx/import`, {
+  const res = await authFetch("/api/gpx/import", {
     method: "POST",
     body: form,
   });
@@ -307,7 +299,7 @@ export async function importTripZip(file: File): Promise<{
 }> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(`${API_URL}/api/trip-planner/import-trip`, {
+  const res = await authFetch("/api/trip-planner/import-trip", {
     method: "POST",
     body: form,
   });
@@ -322,6 +314,51 @@ export function exportDayGpxUrl(tripId: string, dayNumber: number): string {
   return `${API_URL}/api/trip-planner/trips/${tripId}/gpx/day/${dayNumber}`;
 }
 
+// ---------- Sharing ----------
+
+export interface UserGroup {
+  id: string;
+  name: string;
+  my_role: string;
+  shared_item_count: number;
+}
+
+export async function listMyGroups(): Promise<UserGroup[]> {
+  const res = await authFetch("/api/groups");
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function shareItemWithGroup(
+  groupId: string,
+  itemType: "route" | "trip",
+  itemId: string,
+): Promise<void> {
+  const res = await authFetch(`/api/groups/${groupId}/share`, {
+    method: "POST",
+    body: JSON.stringify({ item_type: itemType, item_id: itemId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Share failed" }));
+    throw new Error(err.detail || "Share failed");
+  }
+}
+
+export async function unshareItem(
+  groupId: string,
+  sharedItemId: string,
+): Promise<void> {
+  const res = await authFetch(`/api/groups/${groupId}/shared/${sharedItemId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Unshare failed" }));
+    throw new Error(err.detail || "Unshare failed");
+  }
+}
+
+// ---------- Day GPX ----------
+
 export async function importDayIntoTrip(tripId: string, dayNumber: number, file: File): Promise<{
   waypoints: Waypoint[];
   day_overlays: DayOverlay[];
@@ -330,8 +367,8 @@ export async function importDayIntoTrip(tripId: string, dayNumber: number, file:
 }> {
   const form = new FormData();
   form.append("file", file);
-  const res = await fetch(
-    `${API_URL}/api/trip-planner/trips/${tripId}/import-day?day_number=${dayNumber}`,
+  const res = await authFetch(
+    `/api/trip-planner/trips/${tripId}/import-day?day_number=${dayNumber}`,
     { method: "POST", body: form },
   );
   if (!res.ok) {

@@ -118,6 +118,12 @@ export interface RouteResponse {
 
 // ---------- Saved Trips ----------
 
+export interface SharedGroupInfo {
+  id: string;
+  name: string;
+  shared_item_id: string;
+}
+
 export interface TripSummary {
   id: string;
   name: string;
@@ -132,6 +138,11 @@ export interface TripSummary {
   // Multi-day fields (present when loaded from trips table)
   is_multiday?: boolean;
   day_count?: number;
+  // Groups this trip is shared with
+  shared_with_groups?: SharedGroupInfo[];
+  // Ownership info for shared trips
+  ownership?: "owned" | "shared_editor" | "shared_viewer";
+  owner_name?: string | null;
 }
 
 export interface TripDetail extends TripSummary {
@@ -221,6 +232,7 @@ export interface MultiDayTripSummary {
   total_time_s: number;
   total_moto_score: number | null;
   created_at: string;
+  shared_with_groups?: SharedGroupInfo[];
 }
 
 export interface MultiDayTripDetail extends MultiDayTripSummary {

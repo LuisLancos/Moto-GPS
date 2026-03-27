@@ -2,15 +2,17 @@
 
 ## System Overview
 
-Moto-GPS is a motorcycle navigation platform that uses context-aware routing. Rather than simple "avoid motorways" rules, it scores every road segment on 5 dimensions and uses a Route-Score-Rerank strategy to find genuinely good motorcycle routes.
+Moto-GPS is a motorcycle navigation platform that uses context-aware routing. Rather than simple "avoid motorways" rules, it scores every road segment on 5 dimensions and uses a Route-Score-Rerank strategy to find genuinely good motorcycle routes. It includes invite-only user management, adventure groups, and collaborative trip sharing.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                          User (Browser)                          │
 │           Next.js 16 + MapLibre GL + React 19                    │
 │           Port 3001                                              │
-└────────────────────────────┬─────────────────────────────────────┘
-                             │ REST API
+│                                                                  │
+│  /login  /register  /admin  /profile  /groups  / (map+planner)  │
+└────────────────────────────────┬─────────────────────────────────┘
+                             │ REST API (JWT auth)
                              │
 ┌────────────────────────────▼─────────────────────────────────────┐
 │                        FastAPI Backend                            │
@@ -21,30 +23,153 @@ Moto-GPS is a motorcycle navigation platform that uses context-aware routing. Ra
 │  │  Planner  │  │  Scorer  │  │ Analyzer │  │  Cache         │  │
 │  └─────┬────┘  └────┬─────┘  └────┬─────┘  └────────────────┘  │
 │        │             │             │                              │
-└────────┼─────────────┼─────────────┼────────────────────────────┘
-         │             │             │
-    ┌────▼────┐   ┌────▼─────────────▼──┐   ┌────────────────┐
-    │ Valhalla │   │     PostGIS         │   │     Martin     │
-    │ (routes) │   │  (road scores,      │   │ (vector tiles) │
-    │ :8010    │   │   saved trips)      │   │ :3002          │
-    └──────────┘   │  :5434              │   └────────┬───────┘
-                   └─────────────────────┘            │
-                                                      │ MVT tiles
-                                              ┌───────▼───────┐
-                                              │  MapLibre GL   │
-                                              │ (score overlay)│
-                                              └───────────────┘
+│  ┌─────┴─────────────┴─────────────┴──────────────────────────┐  │
+│  │  Auth (JWT) · Admin · Groups · Vehicles · Sharing          │  │
+│  └────────────────────────┬───────────────────────────────────┘  │
+│                           │                                      │
+└───────────┬───────────────┼──────────────────────────────────────┘
+            │               │
+    ┌───────▼──┐   ┌────────▼────────────┐   ┌────────────────┐
+    │ Valhalla │   │     PostGIS          │   │     Martin     │
+    │ (routes) │   │  (road scores,       │   │ (vector tiles) │
+    │ :8010    │   │   users, groups,     │   │ :3002          │
+    └──────────┘   │   trips, sharing)    │   └────────┬───────┘
+                   │  :5434               │            │
+                   └──────────────────────┘    MVT tiles│
+                                              ┌────────▼───────┐
+                                              │  MapLibre GL    │
+                                              │ (score overlay) │
+                                              └────────────────┘
 ```
+
+## User Management & Authentication
+
+### Invite-Only Registration
+
+Registration is closed by default. Admins generate invite codes, then share registration links (`/register?code=ABC`) manually (no email sending). Each code can be used once and optionally expires.
+
+```
+Admin generates code  →  Shares link  →  User registers  →  Code marked used
+                                              │
+                                          JWT issued (24h)
+```
+
+### Authentication Flow
+
+- **JWT-based**: `Authorization: Bearer <token>` on every authenticated request
+- Tokens contain `sub` (user ID), `is_admin`, `exp`, `iat`
+- Signed with HS256 using `JWT_SECRET` from environment
+- 24-hour expiry (`JWT_EXPIRE_MINUTES=1440`)
+- Token issued on both register and login
+
+### Authorization Layers
+
+| Dependency | What it protects | Behaviour |
+|-----------|-----------------|-----------|
+| `get_current_user` | Most endpoints | Validates JWT, checks user exists and is not blocked. Returns user dict. |
+| `get_current_admin` | `/api/admin/*` | Extends `get_current_user`, additionally requires `is_admin = true`. |
+| `get_optional_user` | Migration-period endpoints | Returns user if valid token present, `None` if no token. Backwards compatibility. |
+| `_check_group_role` | Group operations | Verifies user is a member with a required role (owner/editor/viewer). |
+
+### Admin Capabilities
+
+- Generate and delete invite codes
+- List all users
+- Block/unblock users (blocked users get 403 on any authenticated request)
+- Promote/demote users to/from admin
+- Delete users (cascades to vehicles, group memberships, etc.)
+- First admin is created via CLI: `python -m app.cli.seed_admin`
+
+### Seed Admin
+
+On first setup, there are no users and therefore no way to generate invite codes. The `seed_admin` CLI tool creates the first admin user directly in the database:
+
+```bash
+cd backend
+python -m app.cli.seed_admin
+# Reads ADMIN_EMAIL, ADMIN_NAME, ADMIN_PASSWORD from .env
+```
+
+The seed command also assigns any orphan routes/trips (created before auth was added) to the admin user.
+
+## Adventure Groups
+
+Groups enable collaborative trip planning. A group has a name, description, optional target date and duration.
+
+### Group Roles
+
+| Role | Can do |
+|------|--------|
+| **Owner** | Full control: edit group, invite/remove members, change roles, share/unshare items, delete group |
+| **Editor** | Share items into the group, edit shared routes |
+| **Viewer** | View shared items, export GPX, clone items to own trips |
+
+The group creator is automatically the owner. New members are invited as editor or viewer.
+
+### Invitation Flow
+
+```
+Owner searches for user (GET /api/users/search?q=...)
+  → Sends invitation (POST /api/groups/{id}/invite)
+    → Target user sees pending invitation (GET /api/invitations)
+      → Accepts or declines
+        → On accept: added as group member with invited role
+```
+
+Invitations are per-user, per-group (unique constraint). Re-inviting resets a declined invitation to pending.
+
+## Trip & Route Sharing
+
+### How Sharing Works
+
+Owners and editors can share any trip or route with their group. Shared items appear in every member's Saved Trips list alongside their own trips, using a UNION query.
+
+```sql
+-- Conceptual: trips listing query
+SELECT ... FROM saved_routes WHERE user_id = :current_user  -- owned
+UNION ALL
+SELECT ... FROM saved_routes sr
+  JOIN group_shared_items gsi ON gsi.item_id = sr.id
+  JOIN group_members gm ON gm.group_id = gsi.group_id
+  WHERE gm.user_id = :current_user                        -- shared via group
+```
+
+### Ownership Indicators
+
+Each trip in the list carries an `ownership` field:
+
+| Value | UI Badge | Meaning |
+|-------|----------|---------|
+| `"owned"` | (none) | User's own trip |
+| `"shared_editor"` | Blue "shared - edit" | Shared via group, can edit |
+| `"shared_viewer"` | Grey "shared - view" | Shared via group, read-only |
+
+Shared trips also show `owner_name` ("by {name}") and owned trips show `shared_with_groups` listing which groups they're shared with.
+
+### Permission Matrix
+
+| Action | Owner | Editor (shared) | Viewer (shared) |
+|--------|-------|-----------------|-----------------|
+| View route | Yes | Yes | Yes |
+| Edit route | Yes | Yes | No |
+| Export GPX | Yes | Yes | Yes |
+| Delete trip | Yes | No | No |
+| Unshare | Yes | Sharer only | No |
+| Clone to own | -- | Yes | Yes |
+
+### Clone
+
+Any group member can clone a shared item, which creates an independent copy in their own trip list (with " (copy)" appended to the name). The clone has no further connection to the original.
 
 ## Core Strategy: Route-Score-Rerank
 
 Valhalla's HTTP API doesn't support custom per-edge costs. So instead of modifying the routing graph, we:
 
-1. **Generate candidates** — Fire 3-4 Valhalla requests in parallel, each with different motorcycle costing parameters (`use_highways`, `use_hills`, `use_trails`). Each returns a single best route for those parameters. This is much faster than using `alternates` (which requires multiple graph explorations per call).
+1. **Generate candidates** -- Fire 3-4 Valhalla requests in parallel, each with different motorcycle costing parameters (`use_highways`, `use_hills`, `use_trails`). Each returns a single best route for those parameters. This is much faster than using `alternates` (which requires multiple graph explorations per call).
 
-2. **Score against PostGIS** — For each candidate route, sample points along the track and query nearby road segments from our pre-scored database. Compute a length-weighted average across all 5 scoring dimensions.
+2. **Score against PostGIS** -- For each candidate route, sample points along the track and query nearby road segments from our pre-scored database. Compute a length-weighted average across all 5 scoring dimensions.
 
-3. **Rerank** — Sort candidates by motorcycle quality score, return the top 3.
+3. **Rerank** -- Sort candidates by motorcycle quality score, return the top 3.
 
 ```
                  Valhalla (parallel)
@@ -99,28 +224,28 @@ Each road segment gets scores on 5 dimensions (0.0 to 1.0):
 After a route is planned, the analysis system runs 8 detectors to find problems and suggest improvements.
 
 **Geometry detectors** (pure math, <5ms):
-- Backtracking — waypoint sends route in the opposite direction
-- Close proximity — two waypoints essentially at the same location
-- Detour ratio — a leg is unreasonably longer than the straight-line distance
-- U-turns — route doubles back on itself
+- Backtracking -- waypoint sends route in the opposite direction
+- Close proximity -- two waypoints essentially at the same location
+- Detour ratio -- a leg is unreasonably longer than the straight-line distance
+- U-turns -- route doubles back on itself
 
 **PostGIS detectors** (parallel queries, ~500ms):
-- Road quality drop — a section scores much lower than the route average
-- Missed high-scoring road — a scenic road within 2km wasn't used
+- Road quality drop -- a section scores much lower than the route average
+- Missed high-scoring road -- a scenic road within 2km wasn't used
 
 Each anomaly includes **multiple fix options** (e.g., "Move waypoint" + "Remove waypoint" + "Ignore"). The user can:
-- Click **"📍 Show"** to zoom the map to the anomaly location with a coloured highlight line
+- Click **"Show"** to zoom the map to the anomaly location with a coloured highlight line
 - Click any fix option to apply it
 - Fixes update the waypoints and trigger a manual recalculate
 
 ## Multi-Day Trip Planning
 
-Multi-day trips are planned as **one continuous route** with **day overlays** — lenses that define where each day starts and ends.
+Multi-day trips are planned as **one continuous route** with **day overlays** -- lenses that define where each day starts and ends.
 
 ```
 TRIP = ONE continuous route planned as a whole
        A ──── B ──── C ──── D ──── E ──── F
-                     🌙           🌙
+                     *             *
                   (overnight)   (overnight)
 
 Day overlays (lenses into the master route):
@@ -153,25 +278,27 @@ When a waypoint is dragged, it snaps to the nearest motorcycle-routable road usi
 ### Right-Click Context Menu
 
 Right-clicking on the map shows:
-- "📍 Add waypoint here" — smart insert at closest segment
-- "➕ Insert into route here" — explicit route insertion
-- "🔄 Recalculate route"
-- "🗑️ Delete waypoint N" — if right-clicked near a waypoint
+- "Add waypoint here" -- smart insert at closest segment
+- "Insert into route here" -- explicit route insertion
+- "Recalculate route"
+- "Delete waypoint N" -- if right-clicked near a waypoint
 
 ### Manual Recalculate
 
 Route does NOT auto-recalculate on every change. Instead:
 - Edit multiple waypoints (move, add, delete, reorder)
-- The "Plan Route" button turns amber: "🔄 Recalculate"
+- The "Plan Route" button turns amber: "Recalculate"
 - Click once to recalculate with all changes applied
 - Map zoom/position is preserved during edits
 
 ## Save / Update Flow
 
-- **No trip loaded (new route):** 💾+ opens Save dialog → creates new trip
-- **Trip loaded (editing):** 💾 quick-saves in place → updates the same trip
-- **Trip loaded, want a copy:** 💾+ opens Save dialog → creates new trip
+- **No trip loaded (new route):** Save+ opens Save dialog -> creates new trip
+- **Trip loaded (editing):** Save quick-saves in place -> updates the same trip
+- **Trip loaded, want a copy:** Save+ opens Save dialog -> creates new trip
 - Header shows "Editing: Trip Name" when a loaded trip is active
+- **Shared trip (editor):** Save updates the original (owner's trip)
+- **Shared trip (viewer):** Save is disabled; use Clone to create own copy
 
 ## Database Schema
 
@@ -198,6 +325,88 @@ The core data table. Each row is a single OSM way segment.
 
 **Indexes**: GIST on geometry, B-tree on highway, road_class, composite_moto_score, region.
 
+### users
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `id` | UUID | Primary key |
+| `email` | TEXT | Unique, stored lowercase |
+| `name` | TEXT | Display name |
+| `password_hash` | TEXT | bcrypt hash |
+| `is_admin` | BOOLEAN | Admin privileges |
+| `is_blocked` | BOOLEAN | Blocked from all access |
+| `created_at`, `updated_at` | TIMESTAMPTZ | Timestamps |
+
+### invite_codes
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `id` | UUID | Primary key |
+| `code` | TEXT | Unique 8-char code (token_urlsafe) |
+| `created_by` | UUID FK | Admin who generated it |
+| `used_by` | UUID FK | User who consumed it (null if unused) |
+| `used_at` | TIMESTAMPTZ | When it was used |
+| `expires_at` | TIMESTAMPTZ | Optional expiry |
+
+### vehicles
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `id` | UUID | Primary key |
+| `user_id` | UUID FK | Owner |
+| `type` | TEXT | Default "Motorcycle" |
+| `brand`, `model` | TEXT | Manufacturer and model name |
+| `year` | INTEGER | Model year |
+| `picture_base64` | TEXT | Base64-encoded photo (max ~2MB) |
+| `is_default` | BOOLEAN | Default vehicle for the user |
+
+### adventure_groups
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `id` | UUID | Primary key |
+| `name`, `description` | TEXT | Group metadata |
+| `target_date` | DATE | Planned ride date |
+| `duration_days` | INTEGER | Planned duration |
+| `created_by` | UUID FK | Group creator |
+
+### group_members
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `id` | UUID | Primary key |
+| `group_id` | UUID FK | Adventure group (CASCADE delete) |
+| `user_id` | UUID FK | Member (CASCADE delete) |
+| `role` | TEXT | `owner`, `editor`, or `viewer` |
+| `joined_at` | TIMESTAMPTZ | When they joined |
+
+Unique constraint on `(group_id, user_id)`.
+
+### group_invitations
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `id` | UUID | Primary key |
+| `group_id` | UUID FK | Target group |
+| `invited_by` | UUID FK | Who sent the invitation |
+| `invited_user_id` | UUID FK | Who is being invited |
+| `role` | TEXT | Role they'll get on accept |
+| `status` | TEXT | `pending`, `accepted`, `declined` |
+| `responded_at` | TIMESTAMPTZ | When they responded |
+
+Unique constraint on `(group_id, invited_user_id)`. Re-inviting resets status to pending.
+
+### group_shared_items
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `id` | UUID | Primary key |
+| `group_id` | UUID FK | Which group it's shared with |
+| `item_type` | TEXT | `trip` or `route` |
+| `item_id` | UUID | FK to `trips.id` or `saved_routes.id` |
+| `shared_by` | UUID FK | Who shared it |
+| `shared_at` | TIMESTAMPTZ | When it was shared |
+
 ### saved_routes
 
 Single-day saved routes with full route data.
@@ -205,6 +414,7 @@ Single-day saved routes with full route data.
 | Column | Type | Purpose |
 |--------|------|---------|
 | `id` | UUID | Primary key |
+| `user_id` | UUID FK | Owner (null for legacy pre-auth routes) |
 | `name`, `description` | TEXT | User-provided metadata |
 | `route_type` | TEXT | scenic / balanced / fast |
 | `waypoints` | JSONB | Array of `{lat, lng, label}` |
@@ -219,6 +429,7 @@ Multi-day trips with day overlays. Stores the full route + day boundary metadata
 | Column | Type | Purpose |
 |--------|------|---------|
 | `id` | UUID | Primary key |
+| `user_id` | UUID FK | Owner (null for legacy pre-auth trips) |
 | `name`, `description` | TEXT | Trip metadata |
 | `route_type` | TEXT | scenic / balanced / fast |
 | `preferences` | JSONB | Scoring weights |
@@ -230,36 +441,66 @@ Multi-day trips with day overlays. Stores the full route + day boundary metadata
 
 ### user_preferences
 
-Default scoring weights (single-user, phase 1).
+Default scoring weights (legacy single-user table, pre-auth).
 
 ## Frontend Architecture
 
-Single-page app with a map and side panel:
+Multi-page app with authentication, admin panel, user profile, groups, and the main map planner:
 
 ```
-page.tsx (main orchestrator)
-├── Map.tsx (MapLibre GL)
-│   ├── WaypointMarkers.tsx (draggable, selectable, snap-to-road, popup)
-│   ├── RouteLayer.tsx (polyline renderer, multi-route)
-│   ├── DayRouteLayer.tsx (per-day coloured route segments)
-│   ├── ScoreOverlay.tsx (colour-coded road quality from Martin tiles)
-│   └── MapContextMenu.tsx (right-click: add/insert/delete/recalculate)
+layout.tsx (root layout — auth provider, nav bar)
 │
-├── RoutePanel.tsx (side panel / bottom sheet)
-│   ├── SavedTrips.tsx (load/delete, multi-day badges, per-trip GPX export)
-│   ├── WaypointList.tsx (search + drag-and-drop list)
-│   ├── RouteTypeSelector.tsx (scenic/balanced/fast + custom settings)
-│   ├── RouteStats.tsx (distance, time, score, turn-by-turn)
-│   ├── RouteAnalysis.tsx (anomaly cards + 📍 Show + multiple fix buttons)
-│   └── DayPlannerPanel.tsx (multi-day: auto-split, day cards, per-day export/import)
+├── /login → LoginPage
+├── /register → RegisterPage (auto-fills invite code from URL ?code=)
+├── /admin → AdminPage (invite codes + user management, admin only)
+├── /profile → ProfilePage (edit profile, vehicles, change password)
+├── /groups → GroupsPage (adventure groups, invitations, shared items)
 │
-└── SaveTripDialog.tsx (save route modal)
+└── / → page.tsx (main map + route planner)
+    ├── NavBar.tsx (user menu, invitation badge, admin link)
+    │
+    ├── Map.tsx (MapLibre GL)
+    │   ├── WaypointMarkers.tsx (draggable, selectable, snap-to-road, popup)
+    │   ├── RouteLayer.tsx (polyline renderer, multi-route)
+    │   ├── DayRouteLayer.tsx (per-day coloured route segments)
+    │   ├── ScoreOverlay.tsx (colour-coded road quality from Martin tiles)
+    │   └── MapContextMenu.tsx (right-click: add/insert/delete/recalculate)
+    │
+    ├── RoutePanel.tsx (side panel / bottom sheet)
+    │   ├── SavedTrips.tsx (load/delete, multi-day badges, per-trip GPX export,
+    │   │                    group sharing, ownership badges, clone button)
+    │   ├── WaypointList.tsx (search + drag-and-drop list)
+    │   ├── RouteTypeSelector.tsx (scenic/balanced/fast + custom settings)
+    │   ├── RouteStats.tsx (distance, time, score, turn-by-turn)
+    │   ├── RouteAnalysis.tsx (anomaly cards + Show + multiple fix buttons)
+    │   └── DayPlannerPanel.tsx (multi-day: auto-split, day cards, per-day export/import)
+    │
+    └── SaveTripDialog.tsx (save route modal)
 ```
 
 **State management**:
-- `useRoute` hook — waypoints, routes, analysis, preferences, stale indicator. Does NOT auto-recalculate; user triggers manually.
-- `useTripPlanner` hook — day overlays, selected day, daily target, overnight stops. Reads from `useRoute`'s state (never duplicates it).
-- Loaded trip tracking — `loadedTripId`, `loadedTripName`, `loadedTripIsMultiday` for in-place save vs save-as-new.
+- `useAuth` hook -- login state, token storage, user profile, logout
+- `useRoute` hook -- waypoints, routes, analysis, preferences, stale indicator. Does NOT auto-recalculate; user triggers manually.
+- `useTripPlanner` hook -- day overlays, selected day, daily target, overnight stops. Reads from `useRoute`'s state (never duplicates it).
+- Loaded trip tracking -- `loadedTripId`, `loadedTripName`, `loadedTripIsMultiday` for in-place save vs save-as-new.
+
+**API clients**:
+- `api.ts` -- route planning, trips, multi-day, GPX, snap-to-road
+- `authApi.ts` -- register, login, profile, password
+- `adminApi.ts` -- user management, invite codes
+
+## Security Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Invite-only registration | Keeps the platform private; admin controls who joins |
+| No email sending | Simplifies deployment; invite codes shared manually (copy link) |
+| Group invitations for existing users only | Avoids external email invites and spam vectors |
+| JWT in Authorization header (not cookies) | Simpler CORS, explicit auth, works with API clients |
+| Trip ownership checks on update/delete | Users can only modify their own trips; shared access via group membership |
+| Shared trips via UNION queries | Owned and shared trips merge into one list without duplicating data |
+| Day overlays as lenses (not separate routes) | Editing a day modifies the master route; no sync issues |
+| `get_optional_user` dependency | Backwards compatibility during migration from anonymous to authenticated |
 
 ## Performance Optimisations
 
@@ -278,16 +519,30 @@ page.tsx (main orchestrator)
 
 ```
 1. User clicks "Plan Route"
-2. Frontend: POST /api/route {waypoints, route_type}
-3. Backend: Check cache → hit? return immediately
-4. Backend: Build 3-4 Valhalla parameter sets based on route_type
-5. Backend: asyncio.gather() → 3-4 parallel Valhalla /route calls
-6. Backend: Deduplicate routes (2% distance / 5% time threshold)
-7. Backend: asyncio.gather() → parallel PostGIS scoring per route
-8. Backend: Sort by moto_score, return top 3
-9. Backend: Cache result (5-min TTL)
-10. Frontend: Display routes on map + stats panel
-11. Frontend: Auto-trigger POST /api/route/analyze (300ms delay)
-12. Backend: Run 4 geometry detectors + 2 PostGIS detectors in parallel
-13. Frontend: Display anomaly cards with fix buttons
+2. Frontend: POST /api/route {waypoints, route_type} + Authorization header
+3. Backend: Validate JWT, check user not blocked
+4. Backend: Check cache → hit? return immediately
+5. Backend: Build 3-4 Valhalla parameter sets based on route_type
+6. Backend: asyncio.gather() → 3-4 parallel Valhalla /route calls
+7. Backend: Deduplicate routes (2% distance / 5% time threshold)
+8. Backend: asyncio.gather() → parallel PostGIS scoring per route
+9. Backend: Sort by moto_score, return top 3
+10. Backend: Cache result (5-min TTL)
+11. Frontend: Display routes on map + stats panel
+12. Frontend: Auto-trigger POST /api/route/analyze (300ms delay)
+13. Backend: Run 4 geometry detectors + 2 PostGIS detectors in parallel
+14. Frontend: Display anomaly cards with fix buttons
+```
+
+## Data Flow: Trip Sharing
+
+```
+1. Owner clicks "Share" on a trip in Saved Trips panel
+2. Frontend: POST /api/groups/{group_id}/share {item_type, item_id}
+3. Backend: Verify user is owner or editor of the group
+4. Backend: INSERT into group_shared_items
+5. All group members now see the trip in their GET /api/trips response
+6. Frontend: Shared trips display with "shared - edit" or "shared - view" badge
+7. Editors can load and edit the shared trip (saves update the original)
+8. Viewers can view, export GPX, or clone to their own trips
 ```

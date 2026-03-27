@@ -201,6 +201,12 @@ class SaveTripRequest(BaseModel):
     total_moto_score: float | None = None
 
 
+class SharedGroupInfo(BaseModel):
+    id: str
+    name: str
+    shared_item_id: str
+
+
 class TripSummaryResponse(BaseModel):
     id: str
     name: str
@@ -211,6 +217,9 @@ class TripSummaryResponse(BaseModel):
     total_time_s: float
     total_moto_score: float | None
     created_at: str
+    shared_with_groups: list[SharedGroupInfo] = []
+    ownership: str = "owned"
+    owner_name: str | None = None
 
 
 class TripDetailResponse(TripSummaryResponse):

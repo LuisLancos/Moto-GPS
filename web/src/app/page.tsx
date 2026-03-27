@@ -2,15 +2,20 @@
 
 import dynamic from "next/dynamic";
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { useAuthContext } from "@/components/auth/AuthProvider";
 import { useRoute } from "@/hooks/useRoute";
 import { useTripPlanner } from "@/hooks/useTripPlanner";
 import { RoutePanel } from "@/components/route/RoutePanel";
 import { SaveTripDialog } from "@/components/route/SaveTripDialog";
+import { TopNav } from "@/components/nav/TopNav";
 import {
   listTrips, saveTrip, updateTrip, deleteTrip, getTrip, importGpx, importTripZip,
   listMultiDayTrips, saveMultiDayTrip, updateMultiDayTrip, deleteMultiDayTrip, getMultiDayTrip,
   snapToRoad, exportDayGpxUrl, importDayIntoTrip,
+  listMyGroups,
 } from "@/lib/api";
+import type { UserGroup } from "@/lib/api";
 import { findInsertIndex } from "@/lib/geo";
 import { storableRouteType } from "@/lib/formatters";
 import type { TripSummary, RouteType, Waypoint } from "@/lib/types";
@@ -25,6 +30,9 @@ const Map = dynamic(() => import("@/components/map/Map").then((m) => m.Map), {
 });
 
 export default function Home() {
+  const router = useRouter();
+  const { user, loading: authLoading, logout, pendingInvitations } = useAuthContext();
+
   const route = useRoute();
   const selectedRoute = route.routes[route.selectedRouteIndex] || null;
   const tripPlanner = useTripPlanner(route.waypoints, selectedRoute);
@@ -34,19 +42,28 @@ export default function Home() {
   const [tripsLoading, setTripsLoading] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saving, setSaving] = useState(false);
-  // Track the currently loaded trip so we can update in place
   const [loadedTripId, setLoadedTripId] = useState<string | null>(null);
   const [loadedTripName, setLoadedTripName] = useState<string | null>(null);
   const [loadedTripIsMultiday, setLoadedTripIsMultiday] = useState(false);
+  const [myGroups, setMyGroups] = useState<UserGroup[]>([]);
+
+  // Auth gate
+  useEffect(() => {
+    if (!authLoading && !user) {
+      router.push("/login");
+    }
+  }, [authLoading, user, router]);
 
   const refreshTrips = useCallback(async () => {
     setTripsLoading(true);
     try {
-      // Load both single-day and multi-day trips, merge into one list
-      const [singleDay, multiDay] = await Promise.all([
+      // Load trips and groups in parallel
+      const [singleDay, multiDay, groups] = await Promise.all([
         listTrips().catch(() => []),
         listMultiDayTrips().catch(() => []),
+        listMyGroups().catch(() => []),
       ]);
+      setMyGroups(groups);
 
       // Tag multi-day trips
       const mdTrips: TripSummary[] = multiDay.map((t) => ({
@@ -62,6 +79,7 @@ export default function Home() {
         updated_at: t.created_at,
         is_multiday: true,
         day_count: t.day_count,
+        shared_with_groups: t.shared_with_groups,
       }));
 
       // Merge and sort by date (newest first)
@@ -92,25 +110,47 @@ export default function Home() {
       const isMultiday = tripPlanner.isMultiDay && tripPlanner.dayOverlays.length > 0;
 
       if (isMultiday || loadedTripIsMultiday) {
-        await updateMultiDayTrip(loadedTripId, {
-          name: loadedTripName,
-          route_type: storableRouteType(route.routeType),
-          preferences: route.preferences,
-          waypoints: route.waypoints,
-          route_data: sr,
-          day_overlays: tripPlanner.dayOverlays,
-          daily_target_m: tripPlanner.dailyTargetM,
-          total_distance_m: sr.distance_m,
-          total_time_s: sr.time_s,
-          total_moto_score: sr.moto_score ?? undefined,
-        });
+        if (loadedTripIsMultiday) {
+          // Already a multi-day trip — update in place
+          await updateMultiDayTrip(loadedTripId, {
+            name: loadedTripName,
+            route_type: storableRouteType(route.routeType),
+            preferences: route.preferences,
+            waypoints: route.waypoints,
+            route_data: sr,
+            day_overlays: tripPlanner.dayOverlays,
+            daily_target_m: tripPlanner.dailyTargetM,
+            total_distance_m: sr.distance_m,
+            total_time_s: sr.time_s,
+            total_moto_score: sr.moto_score ?? undefined,
+          });
+        } else {
+          // Transitioning from single-day → multi-day: create new, delete old
+          const result = await saveMultiDayTrip({
+            name: loadedTripName,
+            route_type: storableRouteType(route.routeType),
+            preferences: route.preferences,
+            waypoints: route.waypoints,
+            route_data: sr,
+            day_overlays: tripPlanner.dayOverlays,
+            daily_target_m: tripPlanner.dailyTargetM,
+            total_distance_m: sr.distance_m,
+            total_time_s: sr.time_s,
+            total_moto_score: sr.moto_score ?? undefined,
+          });
+          // Delete old single-day version
+          await deleteTrip(loadedTripId).catch(() => {});
+          // Update references to the new multi-day trip
+          setLoadedTripId(result.id);
+          setLoadedTripIsMultiday(true);
+        }
       } else {
         await updateTrip(loadedTripId, {
           name: loadedTripName,
           route_type: storableRouteType(route.routeType),
           waypoints: route.waypoints,
           preferences: route.preferences,
-          selected_route: sr,
+          route_data: sr,
           total_distance_m: sr.distance_m,
           total_time_s: sr.time_s,
           total_moto_score: sr.moto_score ?? undefined,
@@ -155,7 +195,7 @@ export default function Home() {
           route_type: storableRouteType(route.routeType),
           waypoints: route.waypoints,
           preferences: route.preferences,
-          selected_route: sr,
+          route_data: sr,
           total_distance_m: sr.distance_m,
           total_time_s: sr.time_s,
           total_moto_score: sr.moto_score ?? undefined,
@@ -372,6 +412,16 @@ export default function Home() {
     [route.waypoints, route.insertWaypoint]
   );
 
+  // Auth gate (after all hooks)
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-zinc-950">
+        <div className="text-zinc-500 text-sm">Loading...</div>
+      </div>
+    );
+  }
+  if (!user) return null;
+
   const panelProps = {
     waypoints: route.waypoints,
     routes: route.routes,
@@ -383,6 +433,7 @@ export default function Home() {
     routeStale: route.routeStale,
     trips,
     tripsLoading,
+    myGroups,
     onRemoveWaypoint: route.removeWaypoint,
     onAddWaypoint: handleSmartMapClick,
     onReorderWaypoints: route.reorderWaypoints,
@@ -426,14 +477,16 @@ export default function Home() {
   };
 
   return (
-    <div className="flex h-screen bg-zinc-950">
-      {/* Sidebar */}
-      <aside className="hidden md:flex md:w-80 lg:w-96 flex-col border-r border-zinc-800 bg-zinc-900">
-        <RoutePanel {...panelProps} />
-      </aside>
+    <div className="flex flex-col h-screen bg-zinc-950">
+      <TopNav />
+      <div className="flex flex-1 min-h-0">
+        {/* Sidebar */}
+        <aside className="hidden md:flex md:w-80 lg:w-96 flex-col border-r border-zinc-800 bg-zinc-900">
+          <RoutePanel {...panelProps} />
+        </aside>
 
-      {/* Map */}
-      <main className="flex-1 relative">
+        {/* Map */}
+        <main className="flex-1 relative">
         <Map
           waypoints={route.waypoints}
           routes={route.routes}
@@ -459,6 +512,7 @@ export default function Home() {
           <RoutePanel {...panelProps} />
         </div>
       </main>
+      </div>
 
       {/* Save Trip dialog */}
       <SaveTripDialog

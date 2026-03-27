@@ -11,12 +11,14 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.database import get_db
+from app.auth.dependencies import get_optional_user
 from app.models.route import (
     AutoSplitRequest,
     AutoSplitResponse,
     DayOverlay,
     DayOverlayWithStats,
     SaveTripRequest,
+    SharedGroupInfo,
     TripDetailResponse,
     TripSummaryResponse,
     Waypoint,
@@ -170,15 +172,91 @@ async def auto_split_endpoint(request: AutoSplitRequest):
 
 
 @router.get("/trip-planner/trips")
-async def list_trips(db: AsyncSession = Depends(get_db)):
-    """List all saved trips."""
-    result = await db.execute(text("""
-        SELECT id, name, description, route_type,
-               COALESCE(jsonb_array_length(day_overlays), 0) AS day_count,
-               total_distance_m, total_time_s, total_moto_score, created_at
-        FROM trips ORDER BY created_at DESC
-    """))
+async def list_trips(
+    db: AsyncSession = Depends(get_db),
+    user: dict | None = Depends(get_optional_user),
+):
+    """List saved multi-day trips: user's own + group-shared."""
+    if user:
+        result = await db.execute(
+            text("""
+                SELECT id, name, description, route_type, day_count,
+                       total_distance_m, total_time_s, total_moto_score,
+                       created_at, user_id, ownership, owner_name
+                FROM (
+                    SELECT t.id, t.name, t.description, t.route_type,
+                           COALESCE(jsonb_array_length(t.day_overlays), 0) AS day_count,
+                           t.total_distance_m, t.total_time_s, t.total_moto_score,
+                           t.created_at, t.user_id,
+                           'owned'::text AS ownership, NULL::text AS owner_name
+                    FROM trips t
+                    WHERE t.user_id = :uid
+                ) owned
+                UNION ALL
+                SELECT id, name, description, route_type, day_count,
+                       total_distance_m, total_time_s, total_moto_score,
+                       created_at, user_id, ownership, owner_name
+                FROM (
+                    SELECT DISTINCT ON (t.id)
+                           t.id, t.name, t.description, t.route_type,
+                           COALESCE(jsonb_array_length(t.day_overlays), 0) AS day_count,
+                           t.total_distance_m, t.total_time_s, t.total_moto_score,
+                           t.created_at, t.user_id,
+                           CASE WHEN gm.role IN ('owner', 'editor') THEN 'shared_editor'
+                                ELSE 'shared_viewer' END AS ownership,
+                           owner_user.name AS owner_name
+                    FROM trips t
+                    JOIN group_shared_items gsi ON gsi.item_id = t.id AND gsi.item_type = 'trip'
+                    JOIN group_members gm ON gm.group_id = gsi.group_id AND gm.user_id = :uid
+                    LEFT JOIN users owner_user ON owner_user.id = t.user_id
+                    WHERE (t.user_id IS NULL OR t.user_id != :uid)
+                    ORDER BY t.id, ownership ASC
+                ) shared
+            """),
+            {"uid": user["id"]},
+        )
+    else:
+        result = await db.execute(text("""
+            SELECT id, name, description, route_type,
+                   COALESCE(jsonb_array_length(day_overlays), 0) AS day_count,
+                   total_distance_m, total_time_s, total_moto_score, created_at,
+                   user_id, 'owned' AS ownership, NULL AS owner_name
+            FROM trips ORDER BY created_at DESC
+        """))
     rows = result.fetchall()
+
+    # Deduplicate
+    seen: set[str] = set()
+    unique_rows = []
+    for r in rows:
+        rid = str(r.id)
+        if rid not in seen:
+            seen.add(rid)
+            unique_rows.append(r)
+    unique_rows.sort(key=lambda r: r.created_at or "", reverse=True)
+
+    # Batch-fetch shared groups for all trips
+    trip_ids = [str(r.id) for r in unique_rows]
+    shared_map: dict[str, list[SharedGroupInfo]] = {tid: [] for tid in trip_ids}
+    if trip_ids:
+        shared_result = await db.execute(
+            text("""
+                SELECT gsi.item_id, gsi.id AS shared_item_id,
+                       g.id AS group_id, g.name AS group_name
+                FROM group_shared_items gsi
+                JOIN adventure_groups g ON g.id = gsi.group_id
+                WHERE gsi.item_type = 'trip' AND gsi.item_id = ANY(:ids)
+            """),
+            {"ids": trip_ids},
+        )
+        for s in shared_result.fetchall():
+            item_id = str(s.item_id)
+            if item_id in shared_map:
+                shared_map[item_id].append(SharedGroupInfo(
+                    id=str(s.group_id), name=s.group_name,
+                    shared_item_id=str(s.shared_item_id),
+                ))
+
     return [
         TripSummaryResponse(
             id=str(r.id),
@@ -190,22 +268,29 @@ async def list_trips(db: AsyncSession = Depends(get_db)):
             total_time_s=r.total_time_s or 0,
             total_moto_score=r.total_moto_score,
             created_at=r.created_at.isoformat() if r.created_at else "",
+            shared_with_groups=shared_map.get(str(r.id), []),
+            ownership=r.ownership,
+            owner_name=r.owner_name,
         )
-        for r in rows
+        for r in unique_rows
     ]
 
 
 @router.post("/trip-planner/trips")
-async def save_trip(request: SaveTripRequest, db: AsyncSession = Depends(get_db)):
+async def save_trip(
+    request: SaveTripRequest,
+    db: AsyncSession = Depends(get_db),
+    user: dict | None = Depends(get_optional_user),
+):
     """Save a new multi-day trip."""
     result = await db.execute(
         text("""
             INSERT INTO trips (name, description, route_type, preferences, waypoints,
                                route_data, day_overlays, daily_target_m,
-                               total_distance_m, total_time_s, total_moto_score)
+                               total_distance_m, total_time_s, total_moto_score, user_id)
             VALUES (:name, :description, :route_type, :preferences, :waypoints,
                     :route_data, :day_overlays, :daily_target_m,
-                    :total_distance_m, :total_time_s, :total_moto_score)
+                    :total_distance_m, :total_time_s, :total_moto_score, :uid)
             RETURNING id, created_at
         """),
         {
@@ -220,6 +305,7 @@ async def save_trip(request: SaveTripRequest, db: AsyncSession = Depends(get_db)
             "total_distance_m": request.total_distance_m,
             "total_time_s": request.total_time_s,
             "total_moto_score": request.total_moto_score,
+            "uid": user["id"] if user else None,
         },
     )
     await db.commit()
