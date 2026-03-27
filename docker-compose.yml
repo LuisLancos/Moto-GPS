@@ -1,0 +1,50 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    ports:
+      - "5434:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  valhalla:
+    image: ghcr.io/nilsnolde/docker-valhalla/valhalla:latest
+    ports:
+      - "8010:8002"
+    volumes:
+      - ./data/valhalla:/custom_files
+    environment:
+      - tile_urls=https://download.geofabrik.de/europe/great-britain-latest.osm.pbf
+      - use_tiles_ignore_pbf=False
+      - force_rebuild=False
+      - build_elevation=True
+      - build_admins=True
+      - build_time_zones=True
+      - server_threads=8
+      - serve_tiles=True
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  martin:
+    image: ghcr.io/maplibre/martin:latest
+    ports:
+      - "3002:3000"
+    volumes:
+      - ./docker/martin/config.yaml:/config.yaml
+    command: --config /config.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy

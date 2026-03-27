@@ -1,0 +1,7 @@
+osmium
+psycopg2-binary
+shapely
+numpy
+rasterio
+requests
+python-dotenv

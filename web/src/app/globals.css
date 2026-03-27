@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+/* Ensure map container fills its parent */
+.maplibregl-map {
+  width: 100% !important;
+  height: 100% !important;
+}

@@ -1,0 +1,22 @@
+{
+  "mjolnir": {
+    "tile_dir": "/custom_files/valhalla_tiles",
+    "concurrency": 8
+  },
+  "httpd": {
+    "service": {
+      "listen": "tcp://*:8002",
+      "loopback": "ipc:///tmp/valhalla.lock"
+    }
+  },
+  "service_limits": {
+    "auto": {
+      "max_distance": 5000000.0,
+      "max_locations": 20
+    },
+    "motorcycle": {
+      "max_distance": 5000000.0,
+      "max_locations": 20
+    }
+  }
+}

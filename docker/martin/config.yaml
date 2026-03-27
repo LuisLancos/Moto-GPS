@@ -1,0 +1,23 @@
+postgres:
+  connection_string: postgresql://motogps:motogps_dev@postgres:5432/motogps
+
+  tables:
+    road_scores:
+      schema: public
+      table: road_segments
+      srid: 4326
+      geometry_column: geometry
+      id_column: id
+      minzoom: 10
+      maxzoom: 16
+      properties:
+        curvature_score: real
+        surface_score: real
+        elevation_score: real
+        urban_density_score: real
+        composite_moto_score: real
+        road_class: text
+        highway: text
+        name: text
+        ref: text
+        surface: text
