@@ -12,6 +12,7 @@ import { DayPlannerPanel } from "./DayPlannerPanel";
 import type { DayOverlay, DayOverlayWithStats, AIChatMessage, AISuggestions } from "@/lib/types";
 import type { UserGroup } from "@/lib/api";
 import { AIPlannerChat } from "../ai/AIPlannerChat";
+import { HintBeacon } from "../walkthrough/HintBeacon";
 
 interface RoutePanelProps {
   waypoints: Waypoint[];
@@ -199,7 +200,9 @@ export function RoutePanel({
       {/* AI Trip Planner */}
       {aiPlanner && (
         <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
           <button
+            data-tour="ai-planner"
             onClick={aiPlanner.onToggle}
             className={`flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-md transition-colors ${
               aiPlanner.isOpen
@@ -209,6 +212,8 @@ export function RoutePanel({
           >
             ✨ AI Trip Planner
           </button>
+          <HintBeacon id="ai-planner" hint="Ask the AI to plan routes, suggest fuel stops, scenic detours, and more." />
+          </div>
           {aiPlanner.isOpen && (
             <AIPlannerChat
               messages={aiPlanner.messages}
@@ -260,6 +265,7 @@ export function RoutePanel({
       {waypoints.length >= 2 && (
         <div className="flex gap-2">
           <button
+            data-tour="plan-route"
             onClick={onCalculate}
             disabled={loading}
             className={`flex-1 rounded-md font-medium py-2.5 transition-colors text-sm text-white disabled:bg-surface-hover disabled:text-muted ${
@@ -273,6 +279,7 @@ export function RoutePanel({
           {hasRoutes && (
             <>
               <button
+                data-tour="save-trip"
                 onClick={onSaveTrip}
                 className="rounded-md bg-surface-hover hover:bg-surface-alt text-secondary font-medium px-3 py-2.5 transition-colors text-sm"
                 title={loadedTripName ? `Save "${loadedTripName}"` : "Save as new trip"}

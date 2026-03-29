@@ -37,7 +37,7 @@ export function RouteTypeSelector({
     : null;
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2" data-tour="route-type">
       <span className="text-xs font-medium text-muted uppercase tracking-wider">
         Route Type
       </span>

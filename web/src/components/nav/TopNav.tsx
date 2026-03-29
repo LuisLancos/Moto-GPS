@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuthContext } from "@/components/auth/AuthProvider";
 import { useTheme } from "@/contexts/ThemeContext";
+import { HelpButton } from "@/components/walkthrough/HelpButton";
 
 export function TopNav() {
   const pathname = usePathname();
@@ -50,6 +51,7 @@ export function TopNav() {
       </div>
 
       <div className="flex items-center gap-3">
+        <HelpButton />
         {/* Theme toggle */}
         <button
           onClick={toggleTheme}

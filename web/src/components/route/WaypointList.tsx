@@ -152,13 +152,13 @@ export function WaypointList({ waypoints, onRemove, onAdd, onReorder, onNavigate
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2" data-tour="waypoints">
       <span className="text-xs font-medium text-muted uppercase tracking-wider">
         Waypoints
       </span>
 
       {/* Search box */}
-      <div className="relative">
+      <div className="relative" data-tour="search">
         <div className="flex items-center gap-1.5 rounded-md bg-surface-alt border border-border focus-within:border-border-focus transition-colors">
           <span className="pl-2.5 text-muted text-sm">🔍</span>
           <input

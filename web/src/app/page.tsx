@@ -12,6 +12,7 @@ import { useAIPlanner } from "@/hooks/useAIPlanner";
 import { RoutePanel } from "@/components/route/RoutePanel";
 import { SaveTripDialog } from "@/components/route/SaveTripDialog";
 import { TopNav } from "@/components/nav/TopNav";
+import { GuidedTour } from "@/components/walkthrough/GuidedTour";
 import {
   listTrips, saveTrip, updateTrip, deleteTrip, getTrip, importGpx, importTripZip,
   listMultiDayTrips, saveMultiDayTrip, updateMultiDayTrip, deleteMultiDayTrip, getMultiDayTrip,
@@ -827,7 +828,7 @@ export default function Home() {
         </aside>
 
         {/* Map */}
-        <main className="flex-1 relative">
+        <main className="flex-1 relative" data-tour="map">
         <Map
           waypoints={route.waypoints}
           routes={route.routes}
@@ -880,6 +881,8 @@ export default function Home() {
         onSave={handleSaveTrip}
         onClose={() => setShowSaveDialog(false)}
       />
+
+      <GuidedTour />
     </div>
   );
 }
