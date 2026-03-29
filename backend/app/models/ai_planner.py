@@ -13,6 +13,8 @@ class AIChatRequest(BaseModel):
     route_type: str = "balanced"
     # Optional: current route waypoints for "enhance existing route" mode
     current_route_waypoints: list[dict] | None = None  # [{lat, lng, label?}]
+    # Optional: current route data for analysis tools (shape, legs, maneuvers)
+    current_route_data: dict | None = None
 
 
 class POIResult(BaseModel):
@@ -46,9 +48,20 @@ class AISuggestions(BaseModel):
     pois: list[POIResult] = []
 
 
+class RouteAction(BaseModel):
+    type: str  # remove_waypoint | move_waypoint | add_waypoint | recalculate
+    index: int | None = None
+    lat: float | None = None
+    lng: float | None = None
+    label: str | None = None
+    after_index: int | None = None
+    reason: str = ""
+
+
 class AIChatResponse(BaseModel):
     reply: str
     suggestions: AISuggestions | None = None
+    route_actions: list[dict] = []  # Granular route modifications from AI
 
 
 class EnrichPOIsRequest(BaseModel):

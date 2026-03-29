@@ -11,6 +11,8 @@ interface WaypointMarkersProps {
   onSelectWaypoint: (index: number | null) => void;
   onDeleteWaypoint: (index: number) => void;
   onMoveWaypoint: (index: number, newLat: number, newLng: number) => void;
+  onToggleOvernightStop?: (index: number) => void;
+  onSetWaypointType?: (index: number, type: import("@/lib/types").WaypointType) => void;
 }
 
 export function WaypointMarkers({
@@ -20,6 +22,8 @@ export function WaypointMarkers({
   onSelectWaypoint,
   onDeleteWaypoint,
   onMoveWaypoint,
+  onToggleOvernightStop,
+  onSetWaypointType,
 }: WaypointMarkersProps) {
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
 
@@ -49,9 +53,27 @@ export function WaypointMarkers({
       {waypoints.map((wp, index) => {
         const isStart = index === 0;
         const isEnd = index === waypoints.length - 1 && waypoints.length > 1;
-        const isOvernightStop = overnightStopIndices?.has(index) ?? false;
+        const wpType = wp.type || "waypoint";
+        const isOvernight = wpType === "overnight" || wpType === "hotel" || wp.is_overnight || (overnightStopIndices?.has(index) ?? false);
+        const isTypedPOI = ["fuel", "restaurant", "attraction", "biker_cafe"].includes(wpType);
         const isSelected = selectedWaypointIndex === index;
         const isDragging = draggingIndex === index;
+
+        // Icon and color based on type
+        const { icon, markerClass } = (() => {
+          if (isStart) return { icon: "A", markerClass: "w-8 h-8 bg-green-600 border-white" };
+          if (isEnd) return { icon: "B", markerClass: "w-8 h-8 bg-red-600 border-white" };
+          if (isOvernight) return { icon: "🌙", markerClass: "w-8 h-8 bg-amber-500 border-amber-300" };
+          switch (wpType) {
+            case "fuel": return { icon: "⛽", markerClass: "w-7 h-7 bg-orange-600 border-orange-300" };
+            case "restaurant": return { icon: "🍽️", markerClass: "w-7 h-7 bg-rose-600 border-rose-300" };
+            case "biker_cafe": return { icon: "☕", markerClass: "w-7 h-7 bg-yellow-700 border-yellow-400" };
+            case "attraction": return { icon: "📍", markerClass: "w-7 h-7 bg-purple-600 border-purple-300" };
+            default: return { icon: String(index), markerClass: "w-6 h-6 bg-blue-600 border-white" };
+          }
+        })();
+
+        const typeLabel = isOvernight ? "Overnight" : isTypedPOI ? wpType : "Waypoint";
 
         return (
           <Marker
@@ -72,20 +94,11 @@ export function WaypointMarkers({
                 transition-all duration-150 select-none
                 ${isDragging ? "scale-125 opacity-80" : ""}
                 ${isSelected ? "ring-2 ring-yellow-400 ring-offset-1 ring-offset-transparent scale-110" : ""}
-                ${isStart ? "w-8 h-8 bg-green-600 border-white" : ""}
-                ${isEnd ? "w-8 h-8 bg-red-600 border-white" : ""}
-                ${isOvernightStop && !isStart && !isEnd ? "w-8 h-8 bg-amber-500 border-amber-300" : ""}
-                ${!isStart && !isEnd && !isOvernightStop ? "w-6 h-6 bg-blue-600 border-white" : ""}
+                ${markerClass}
               `}
-              title={
-                isOvernightStop
-                  ? `🌙 Overnight stop: ${wp.label || `Waypoint ${index + 1}`} — drag to move, click to select`
-                  : `${wp.label || `Waypoint ${index + 1}`} — drag to move, click to select`
-              }
+              title={`${typeLabel}: ${wp.label || `Waypoint ${index + 1}`} — drag to move, click to select`}
             >
-              <span className="pointer-events-none">
-                {isStart ? "A" : isEnd ? "B" : isOvernightStop ? "🌙" : index}
-              </span>
+              <span className="pointer-events-none">{icon}</span>
             </div>
           </Marker>
         );
@@ -111,22 +124,57 @@ export function WaypointMarkers({
               <span>,</span>
               <span>{waypoints[selectedWaypointIndex].lng.toFixed(4)}</span>
             </div>
-            <div className="flex gap-2 pt-1 border-t border-border">
-              <button
-                onClick={() => {
-                  onDeleteWaypoint(selectedWaypointIndex);
-                  onSelectWaypoint(null);
-                }}
-                className="flex-1 text-xs px-2 py-1 rounded bg-red-100 text-red-700 hover:bg-red-200 transition-colors"
-              >
-                Delete
-              </button>
-              <button
-                onClick={() => onSelectWaypoint(null)}
-                className="flex-1 text-xs px-2 py-1 rounded bg-surface-alt text-muted hover:bg-surface-hover transition-colors"
-              >
-                Close
-              </button>
+            <div className="flex flex-col gap-1.5 pt-1 border-t border-border">
+              {/* Waypoint type selector — only for intermediate waypoints */}
+              {onSetWaypointType && selectedWaypointIndex > 0 && selectedWaypointIndex < waypoints.length - 1 && (
+                <div className="flex flex-wrap gap-1">
+                  {([
+                    { type: "waypoint" as const, icon: "📍", label: "Normal" },
+                    { type: "overnight" as const, icon: "🌙", label: "Overnight" },
+                    { type: "fuel" as const, icon: "⛽", label: "Fuel" },
+                    { type: "restaurant" as const, icon: "🍽️", label: "Food" },
+                    { type: "attraction" as const, icon: "🏰", label: "Visit" },
+                    { type: "biker_cafe" as const, icon: "☕", label: "Cafe" },
+                  ]).map(({ type, icon, label }) => {
+                    const currentType = waypoints[selectedWaypointIndex].type || "waypoint";
+                    const isActive = currentType === type || (type === "overnight" && waypoints[selectedWaypointIndex].is_overnight);
+                    return (
+                      <button
+                        key={type}
+                        onClick={() => {
+                          onSetWaypointType(selectedWaypointIndex, type);
+                          onSelectWaypoint(null);
+                        }}
+                        className={`text-[10px] px-1.5 py-1 rounded transition-colors ${
+                          isActive
+                            ? "bg-blue-600 text-white"
+                            : "bg-surface-alt text-muted hover:bg-surface-hover hover:text-secondary"
+                        }`}
+                        title={label}
+                      >
+                        {icon}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    onDeleteWaypoint(selectedWaypointIndex);
+                    onSelectWaypoint(null);
+                  }}
+                  className="flex-1 text-xs px-2 py-1 rounded bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/40 dark:text-red-300 dark:hover:bg-red-900/60 transition-colors"
+                >
+                  Delete
+                </button>
+                <button
+                  onClick={() => onSelectWaypoint(null)}
+                  className="flex-1 text-xs px-2 py-1 rounded bg-surface-alt text-muted hover:bg-surface-hover transition-colors"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         </Popup>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import type { AIChatMessage, AISuggestions, POIResult, Waypoint } from "@/lib/types";
+import type { AIChatMessage, AISuggestions, POIResult, RouteAction, RouteResult, Waypoint } from "@/lib/types";
 import { sendAIMessage, enrichPOIs } from "@/lib/aiApi";
 
 export interface UseAIPlannerReturn {
@@ -9,15 +9,17 @@ export interface UseAIPlannerReturn {
   messages: AIChatMessage[];
   suggestions: AISuggestions | null;
   pois: POIResult[];
+  routeActions: RouteAction[];
   isOpen: boolean;
   isLoading: boolean;
   error: string | null;
 
   // Actions
   toggle: () => void;
-  sendMessage: (text: string, routeType?: string, currentWaypoints?: Waypoint[]) => Promise<void>;
+  sendMessage: (text: string, routeType?: string, currentWaypoints?: Waypoint[], currentRouteData?: RouteResult) => Promise<void>;
   applySuggestions: () => AISuggestions | null;
   dismissSuggestions: () => void;
+  clearRouteActions: () => void;
   loadPOIs: (categories?: string[]) => Promise<void>;
   clearChat: () => void;
   clearPOIs: () => void;
@@ -27,13 +29,14 @@ export function useAIPlanner(): UseAIPlannerReturn {
   const [messages, setMessages] = useState<AIChatMessage[]>([]);
   const [suggestions, setSuggestions] = useState<AISuggestions | null>(null);
   const [pois, setPois] = useState<POIResult[]>([]);
+  const [routeActions, setRouteActions] = useState<RouteAction[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const toggle = useCallback(() => setIsOpen((v) => !v), []);
 
-  const sendMessage = useCallback(async (text: string, routeType: string = "balanced", currentWaypoints?: Waypoint[]) => {
+  const sendMessage = useCallback(async (text: string, routeType: string = "balanced", currentWaypoints?: Waypoint[], currentRouteData?: RouteResult) => {
     const userMsg: AIChatMessage = {
       role: "user",
       content: text,
@@ -47,7 +50,7 @@ export function useAIPlanner(): UseAIPlannerReturn {
     setError(null);
 
     try {
-      const response = await sendAIMessage(updatedMessages, routeType, currentWaypoints);
+      const response = await sendAIMessage(updatedMessages, routeType, currentWaypoints, currentRouteData);
 
       const assistantMsg: AIChatMessage = {
         role: "assistant",
@@ -60,6 +63,10 @@ export function useAIPlanner(): UseAIPlannerReturn {
 
       if (response.suggestions) {
         setSuggestions(response.suggestions);
+      }
+
+      if (response.route_actions && response.route_actions.length > 0) {
+        setRouteActions(response.route_actions);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to get AI response");
@@ -80,6 +87,10 @@ export function useAIPlanner(): UseAIPlannerReturn {
     setSuggestions(null);
   }, []);
 
+  const clearRouteActions = useCallback(() => {
+    setRouteActions([]);
+  }, []);
+
   const loadPOIs = useCallback(async (categories: string[] = ["fuel", "restaurant", "attraction"]) => {
     if (!suggestions?.waypoints.length) return;
     setIsLoading(true);
@@ -97,6 +108,7 @@ export function useAIPlanner(): UseAIPlannerReturn {
     setMessages([]);
     setSuggestions(null);
     setPois([]);
+    setRouteActions([]);
     setError(null);
   }, []);
 
@@ -108,6 +120,7 @@ export function useAIPlanner(): UseAIPlannerReturn {
     messages,
     suggestions,
     pois,
+    routeActions,
     isOpen,
     isLoading,
     error,
@@ -115,6 +128,7 @@ export function useAIPlanner(): UseAIPlannerReturn {
     sendMessage,
     applySuggestions,
     dismissSuggestions,
+    clearRouteActions,
     loadPOIs,
     clearChat,
     clearPOIs,

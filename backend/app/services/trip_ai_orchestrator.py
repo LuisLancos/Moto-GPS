@@ -26,7 +26,9 @@ async def process_chat(
     messages: list[dict],
     route_type: str = "balanced",
     current_route_waypoints: list[dict] | None = None,
+    current_route_data: dict | None = None,
     db: Optional[AsyncSession] = None,
+    user_id: str | None = None,
 ) -> AIChatResponse:
     """Process a user message through the AI and return structured suggestions.
 
@@ -57,9 +59,14 @@ async def process_chat(
         enriched_messages.insert(0, {"role": "user", "content": context_msg})
         enriched_messages.insert(1, {"role": "assistant", "content": "Understood — I can see your existing route. How can I help enhance it?"})
 
-    # Call the AI
+    # Call the AI with route context for analysis tools
     try:
-        result = await chat_with_tools(enriched_messages, db=db)
+        result = await chat_with_tools(
+            enriched_messages, db=db,
+            current_route=current_route_data,
+            current_waypoints=current_route_waypoints,
+            user_id=user_id,
+        )
     except Exception as e:
         log.error(f"AI call failed: {e}")
         return AIChatResponse(
@@ -69,9 +76,13 @@ async def process_chat(
 
     reply_text = result.get("reply", "")
     raw_suggestions = result.get("suggestions")
+    route_actions = result.get("route_actions", [])
+
+    if not raw_suggestions and not route_actions:
+        return AIChatResponse(reply=reply_text, suggestions=None, route_actions=route_actions)
 
     if not raw_suggestions:
-        return AIChatResponse(reply=reply_text, suggestions=None)
+        return AIChatResponse(reply=reply_text, suggestions=None, route_actions=route_actions)
 
     # Parse and validate suggestions
     suggestions = _parse_suggestions(raw_suggestions)
@@ -98,7 +109,7 @@ async def process_chat(
             if _is_valid_coordinate(poi.lat, poi.lng)
         ]
 
-    return AIChatResponse(reply=reply_text, suggestions=suggestions)
+    return AIChatResponse(reply=reply_text, suggestions=suggestions, route_actions=route_actions)
 
 
 def _parse_suggestions(raw: dict) -> AISuggestions:

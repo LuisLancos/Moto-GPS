@@ -13,6 +13,7 @@ from app.api.admin import router as admin_router
 from app.api.vehicles import router as vehicles_router
 from app.api.groups import router as groups_router
 from app.api.ai_planner import router as ai_planner_router
+from app.api.places import router as places_router
 from app.services.valhalla_client import close_client
 from app.services.overpass_client import close_overpass_client
 
@@ -52,6 +53,7 @@ app.include_router(trips_router, prefix="/api")
 app.include_router(gpx_router, prefix="/api")
 app.include_router(trip_planner_router, prefix="/api")
 app.include_router(ai_planner_router, prefix="/api")
+app.include_router(places_router, prefix="/api")
 
 
 @app.get("/health")

@@ -582,8 +582,206 @@ export default function ProfilePage() {
             </div>
           )}
         </section>
+
+        {/* ===== Saved Places (Favourites) ===== */}
+        <SavedPlacesSection />
       </div>
     </div>
+  );
+}
+
+// ---------- Saved Places Section ----------
+
+const PLACE_ICONS = ["🏠", "🏢", "⭐", "📍", "🏍️", "🏖️", "⛰️", "🏰", "☕", "⛽"];
+
+function SavedPlacesSection() {
+  const [places, setPlaces] = useState<Array<{ id: string; name: string; lat: number; lng: number; icon: string; category: string; address?: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [form, setForm] = useState({ name: "", lat: "", lng: "", icon: "⭐", address: "" });
+  const [saving, setSaving] = useState(false);
+
+  const fetchPlaces = useCallback(async () => {
+    try {
+      const r = await authFetch("/api/places");
+      if (r.ok) setPlaces(await r.json());
+    } catch { /* ignore */ }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchPlaces(); }, [fetchPlaces]);
+
+  const handleSave = async () => {
+    if (!form.name.trim() || !form.lat || !form.lng) return;
+    setSaving(true);
+    try {
+      if (editId) {
+        await authFetch(`/api/places/${editId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: form.name, icon: form.icon, address: form.address || null, lat: parseFloat(form.lat), lng: parseFloat(form.lng) }),
+        });
+      } else {
+        await authFetch("/api/places", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: form.name, lat: parseFloat(form.lat), lng: parseFloat(form.lng), icon: form.icon, address: form.address || null }),
+        });
+      }
+      setShowAdd(false);
+      setEditId(null);
+      setForm({ name: "", lat: "", lng: "", icon: "⭐", address: "" });
+      await fetchPlaces();
+    } catch { /* ignore */ }
+    setSaving(false);
+  };
+
+  const handleDelete = async (id: string) => {
+    await authFetch(`/api/places/${id}`, { method: "DELETE" });
+    await fetchPlaces();
+  };
+
+  const startEdit = (p: typeof places[0]) => {
+    setEditId(p.id);
+    setForm({ name: p.name, lat: String(p.lat), lng: String(p.lng), icon: p.icon, address: p.address || "" });
+    setShowAdd(true);
+  };
+
+  return (
+    <section className="bg-surface border border-border rounded-lg p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-base font-semibold text-secondary">
+          ⭐ Saved Places ({places.length})
+        </h2>
+        {!showAdd && (
+          <button
+            onClick={() => { setShowAdd(true); setEditId(null); setForm({ name: "", lat: "", lng: "", icon: "⭐", address: "" }); }}
+            className="text-xs text-blue-500 hover:text-blue-400 transition-colors"
+          >
+            + Add Place
+          </button>
+        )}
+      </div>
+
+      {/* Add/Edit form */}
+      {showAdd && (
+        <div className="bg-surface-alt border border-border rounded-lg p-3 mb-4 flex flex-col gap-2">
+          <div className="flex gap-2">
+            <div className="flex flex-col gap-1 flex-1">
+              <label className="text-[10px] text-muted">Name</label>
+              <input
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="e.g. Home, Work, Mersea Island"
+                className="bg-surface border border-border rounded px-2 py-1.5 text-sm text-primary focus:outline-none focus:border-border-focus"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-[10px] text-muted">Icon</label>
+              <div className="flex gap-0.5 flex-wrap">
+                {PLACE_ICONS.map((ic) => (
+                  <button
+                    key={ic}
+                    onClick={() => setForm((f) => ({ ...f, icon: ic }))}
+                    className={`w-7 h-7 rounded text-sm flex items-center justify-center transition-colors ${
+                      form.icon === ic ? "bg-blue-600 text-white" : "bg-surface hover:bg-surface-hover"
+                    }`}
+                  >
+                    {ic}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <div className="flex flex-col gap-1 flex-1">
+              <label className="text-[10px] text-muted">Latitude</label>
+              <input
+                value={form.lat}
+                onChange={(e) => setForm((f) => ({ ...f, lat: e.target.value }))}
+                placeholder="51.5358"
+                className="bg-surface border border-border rounded px-2 py-1.5 text-sm text-primary font-mono focus:outline-none focus:border-border-focus"
+              />
+            </div>
+            <div className="flex flex-col gap-1 flex-1">
+              <label className="text-[10px] text-muted">Longitude</label>
+              <input
+                value={form.lng}
+                onChange={(e) => setForm((f) => ({ ...f, lng: e.target.value }))}
+                placeholder="0.6764"
+                className="bg-surface border border-border rounded px-2 py-1.5 text-sm text-primary font-mono focus:outline-none focus:border-border-focus"
+              />
+            </div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] text-muted">Address (optional)</label>
+            <input
+              value={form.address}
+              onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+              placeholder="8 Kenilworth Gardens, SS0 0BD"
+              className="bg-surface border border-border rounded px-2 py-1.5 text-sm text-primary focus:outline-none focus:border-border-focus"
+            />
+          </div>
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={handleSave}
+              disabled={saving || !form.name.trim() || !form.lat || !form.lng}
+              className="bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 disabled:text-blue-400 text-white text-xs px-3 py-1.5 rounded transition-colors"
+            >
+              {saving ? "Saving..." : editId ? "Update" : "Save Place"}
+            </button>
+            <button
+              onClick={() => { setShowAdd(false); setEditId(null); }}
+              className="text-xs text-muted hover:text-secondary transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+          <p className="text-[10px] text-muted">
+            💡 Tip: You can also save places from the waypoint list — click a waypoint, expand details, then &quot;⭐ Save as favourite&quot;.
+          </p>
+        </div>
+      )}
+
+      {/* Places list */}
+      {loading ? (
+        <p className="text-xs text-muted">Loading...</p>
+      ) : places.length === 0 && !showAdd ? (
+        <p className="text-xs text-muted">
+          No saved places yet. Add your home, work, or frequent destinations for quick access when planning routes.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {places.map((p) => (
+            <div key={p.id} className="flex items-center justify-between bg-surface-alt rounded-md px-3 py-2 group">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-sm">{p.icon}</span>
+                <div className="min-w-0">
+                  <span className="text-sm text-secondary font-medium truncate block">{p.name}</span>
+                  {p.address && <span className="text-[10px] text-muted truncate block">{p.address}</span>}
+                  <span className="text-[10px] text-muted font-mono">{p.lat.toFixed(4)}, {p.lng.toFixed(4)}</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={() => startEdit(p)}
+                  className="text-[10px] text-muted hover:text-blue-400 transition-colors px-1"
+                >
+                  ✏️
+                </button>
+                <button
+                  onClick={() => handleDelete(p.id)}
+                  className="text-[10px] text-muted hover:text-red-400 transition-colors px-1"
+                >
+                  🗑️
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 

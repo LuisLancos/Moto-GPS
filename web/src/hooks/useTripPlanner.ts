@@ -244,43 +244,43 @@ export function useTripPlanner(
 
     if (prevCount === newCount || newCount < 2) return;
 
-    // Simple strategy: keep the LAST overlay expanding/contracting.
-    // All other overlays keep their current size. This avoids complex
-    // "where was the insertion" logic and always produces valid overlays.
+    // When waypoints are added or removed, adjust ALL overlay indices proportionally.
+    // The last overlay absorbs any remainder to ensure end_waypoint_idx = newCount - 1.
+    const delta = newCount - prevCount;  // +1 for add, -1 for remove
+
     setDayOverlays((prev) => {
       if (!prev.length) return prev;
-      const updated = [...prev];
-      // Just update the last overlay's end to match new waypoint count
-      updated[updated.length - 1] = {
-        ...updated[updated.length - 1],
-        end_waypoint_idx: newCount - 1,
-      };
+      const updated = prev.map((d) => ({ ...d }));
 
-      // Validate: ensure every overlay has at least 2 waypoints (start != end)
-      for (let i = 0; i < updated.length; i++) {
-        if (updated[i].end_waypoint_idx <= updated[i].start_waypoint_idx) {
-          // This overlay is invalid — merge it into the previous one
-          if (i > 0) {
-            updated[i - 1] = {
-              ...updated[i - 1],
-              end_waypoint_idx: updated[i].end_waypoint_idx,
-            };
-            updated.splice(i, 1);
-            // Re-number days
-            for (let j = 0; j < updated.length; j++) {
-              updated[j] = { ...updated[j], day: j + 1 };
-            }
-            i--; // Recheck at same position
-          }
-        }
+      if (delta > 0) {
+        // Waypoint(s) added — expand the last overlay to absorb
+        updated[updated.length - 1].end_waypoint_idx += delta;
+      } else if (delta < 0) {
+        // Waypoint(s) removed — shrink from the last overlay first
+        updated[updated.length - 1].end_waypoint_idx = Math.max(
+          updated[updated.length - 1].start_waypoint_idx + 1,
+          updated[updated.length - 1].end_waypoint_idx + delta,
+        );
       }
 
-      // Ensure contiguity
-      for (let i = 1; i < updated.length; i++) {
-        updated[i] = { ...updated[i], start_waypoint_idx: updated[i - 1].end_waypoint_idx };
+      // Ensure the last overlay ends at the last waypoint
+      updated[updated.length - 1].end_waypoint_idx = newCount - 1;
+
+      // Validate: remove any overlay with fewer than 2 waypoints
+      const valid = updated.filter((d) => d.end_waypoint_idx > d.start_waypoint_idx);
+      if (valid.length === 0) return prev; // Don't clear everything
+
+      // Ensure contiguity (each day starts where the previous ends)
+      for (let i = 1; i < valid.length; i++) {
+        valid[i].start_waypoint_idx = valid[i - 1].end_waypoint_idx;
       }
 
-      return updated;
+      // Re-number days
+      for (let i = 0; i < valid.length; i++) {
+        valid[i].day = i + 1;
+      }
+
+      return valid;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [waypoints.length]);

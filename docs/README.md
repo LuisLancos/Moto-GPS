@@ -140,37 +140,244 @@ You describe your trip (or click waypoints on the map)
 
 ---
 
-## Quick Start
+## Prerequisites
+
+| Requirement | Version | Notes |
+|-------------|---------|-------|
+| **Docker Desktop** | 24+ | Runs PostGIS, Valhalla, Martin |
+| **Python** | 3.11+ | Backend + data pipeline |
+| **Node.js** | 20+ | Next.js frontend |
+| **Git** | 2.30+ | Clone the repo |
+| **Disk space** | ~15 GB | Valhalla tiles (~8GB) + PostGIS data (~5GB) + OSM PBF (~1.5GB) |
+
+**API keys needed** (all free tier):
+
+| Key | Required | Where to get it |
+|-----|----------|----------------|
+| MapTiler | **Yes** | [maptiler.com/cloud](https://www.maptiler.com/cloud/) — free, 100k tiles/month |
+| Gemini | Recommended | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) — free, enables AI planner |
+| Google Places | Optional | [console.cloud.google.com](https://console.cloud.google.com/apis/credentials) — POI photo enrichment |
+
+---
+
+## Installation (Local)
+
+### Quick Start (one command)
 
 ```bash
-# 1. Clone and configure
 git clone <repo-url> && cd Moto-GPS
 cp .env.example .env
-# Edit .env: set NEXT_PUBLIC_MAPTILER_KEY, JWT_SECRET, ADMIN_PASSWORD
-# For AI planner: set GEMINI_API_KEY
+# Edit .env — set at minimum: NEXT_PUBLIC_MAPTILER_KEY, JWT_SECRET, ADMIN_PASSWORD
+# Recommended: set GEMINI_API_KEY for AI trip planner
 
-# 2. Start infrastructure (PostGIS, Valhalla, Martin)
+./start.sh
+```
+
+The `start.sh` script handles everything: Docker services, Python venv, npm install, admin seeding, and health checks. It will tell you if anything is missing.
+
+**Management commands:**
+```bash
+./start.sh          # Start all services
+./start.sh --stop   # Stop everything (Docker + backend + frontend)
+./start.sh --status # Check health of all services
+```
+
+### Step-by-Step Setup
+
+If you prefer to set things up manually, or if `start.sh` fails:
+
+**1. Clone and configure**
+```bash
+git clone <repo-url> && cd Moto-GPS
+cp .env.example .env
+```
+
+Edit `.env` with your API keys:
+```env
+NEXT_PUBLIC_MAPTILER_KEY=your_key_here     # Required — map won't load without it
+JWT_SECRET=your-random-secret-here          # Required — run: openssl rand -hex 32
+ADMIN_PASSWORD=your-admin-password          # Required — first admin login
+GEMINI_API_KEY=your-gemini-key              # Recommended — enables AI planner
+```
+
+**2. Start Docker services**
+```bash
+docker compose up -d
+```
+
+This starts 3 containers:
+- **PostGIS** (port 5434) — road scores, users, trips, POIs
+- **Valhalla** (port 8010) — motorcycle routing engine (first start takes 2-5 min to build tiles)
+- **Martin** (port 3002) — vector tile server for road score overlay
+
+**3. Import road data** (first time only, ~25 min)
+```bash
+cd pipeline
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python run_pipeline.py --step download,import,score
+```
+
+This downloads the UK road network from Geofabrik, imports 5.15M segments into PostGIS, and scores each on 5 dimensions.
+
+**4. Import POIs** (optional but recommended)
+```bash
+# Still in pipeline/ with venv active
+python import_pois.py          # 83k UK POIs from OpenStreetMap (~5 min)
+python scrape_bikercafes.py    # 1,461 biker cafes (~2 min)
+```
+
+**5. Start the backend**
+```bash
+cd ../backend
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python -m app.cli.seed_admin          # Creates the first admin user
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+**6. Start the frontend**
+```bash
+cd ../web
+npm install
+npm run dev -- --port 3001
+```
+
+**7. Open the app**
+
+Go to [http://localhost:3001](http://localhost:3001) and log in with:
+- Email: `admin@motogps.local` (or whatever you set in `.env`)
+- Password: your `ADMIN_PASSWORD` from `.env`
+
+Then go to **Admin** to generate invite codes for other users.
+
+### Verify everything works
+
+```bash
+./start.sh --status
+```
+
+Or manually:
+```bash
+curl http://localhost:8000/health         # Backend
+curl http://localhost:8010/status         # Valhalla
+curl http://localhost:3002/catalog        # Martin
+```
+
+---
+
+## Deployment (Cloud / VPS)
+
+Moto-GPS is designed to run on any Linux server with Docker. Here's how to deploy it.
+
+### Option 1: Single VPS (Recommended for small teams)
+
+**Minimum specs:** 4 vCPU, 8GB RAM, 30GB SSD (e.g., Hetzner CX31 ~$15/mo, DigitalOcean $48/mo)
+
+```bash
+# On your VPS:
+git clone <repo-url> && cd Moto-GPS
+cp .env.example .env
+```
+
+Edit `.env` for production:
+```env
+# Security — CHANGE THESE
+JWT_SECRET=<generate with: openssl rand -hex 32>
+ADMIN_PASSWORD=<strong-password>
+
+# API Keys
+NEXT_PUBLIC_MAPTILER_KEY=your_key
+GEMINI_API_KEY=your_key
+
+# Database
+POSTGRES_PASSWORD=<strong-db-password>
+```
+
+Build and start:
+```bash
+# Start Docker services
 docker compose up -d
 
-# 3. Import road data (first time, ~25 min)
+# Run data pipeline (first time only)
 cd pipeline && python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python run_pipeline.py --step download,import,score
+python import_pois.py
+python scrape_bikercafes.py
+cd ..
 
-# 3b. Import POIs (optional but recommended)
-python import_pois.py          # 83k UK POIs from OpenStreetMap
-python scrape_bikercafes.py    # 1,461 biker cafes
-
-# 4. Start backend
-cd ../backend && python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-python -m app.cli.seed_admin   # Create admin user
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-
-# 5. Start frontend
-cd ../web && npm install && npm run dev
-# Open http://localhost:3001
+# Start the app
+./start.sh
 ```
+
+**Add a reverse proxy** (nginx or Caddy) for HTTPS:
+
+```nginx
+# /etc/nginx/sites-available/motogps
+server {
+    server_name motogps.yourdomain.com;
+    listen 443 ssl http2;
+
+    ssl_certificate /etc/letsencrypt/live/motogps.yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/motogps.yourdomain.com/privkey.pem;
+
+    # Frontend
+    location / {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+
+    # Backend API
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+### Option 2: Docker Compose (Full Stack)
+
+For a fully Dockerized deployment (backend + frontend in containers too), add these services to `docker-compose.yml`:
+
+```yaml
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build: ./web
+    ports:
+      - "3001:3001"
+    env_file: .env
+    depends_on:
+      - backend
+```
+
+Then: `docker compose up -d --build`
+
+### Option 3: Separate Services
+
+For larger deployments, run each service on its own infrastructure:
+
+| Service | Hosting | Notes |
+|---------|---------|-------|
+| Frontend (Next.js) | Vercel, Netlify, Cloudflare Pages | Zero-config deploy |
+| Backend (FastAPI) | Railway, Render, Fly.io, any VPS | Needs Python 3.11+ |
+| PostGIS | Neon, Supabase, managed Postgres | Needs PostGIS extension |
+| Valhalla | Dedicated VPS | Memory-hungry (~4GB for UK tiles) |
+| Martin | Same as PostGIS or separate | Lightweight |
+
+Update `.env` URLs to point to the correct service endpoints.
 
 ---
 
@@ -192,14 +399,18 @@ cd ../web && npm install && npm run dev
 - **Trip ownership** — users can only modify/delete their own trips
 - **Role-based sharing** — editors can edit, viewers can only view/export
 - **Self-hosted** — your data stays on your infrastructure
+- **No tracking** — no analytics, no telemetry, no third-party scripts
 
 ---
 
 ## Roadmap
 
 - [ ] Elevation profile visualisation
-- [ ] React Native mobile app (PWA in the meantime)
+- [ ] Progressive Web App (installable on mobile)
+- [ ] React Native mobile app
 - [ ] Europe-wide road data (currently UK only)
 - [ ] Preference learning from ride history
-- [ ] Real-time weather overlay
+- [ ] Real-time weather overlay along route
 - [ ] Live group tracking during rides
+- [ ] Offline map tiles for areas with no signal
+- [ ] Integration with motorcycle dashcams (GoPro, Insta360)

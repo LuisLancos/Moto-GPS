@@ -1,24 +1,63 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import type { Waypoint } from "@/lib/types";
 import type { GeocodingResult } from "@/lib/api";
 import { geocodeSearch } from "@/lib/api";
+import { authFetch } from "@/lib/authApi";
+
+interface SavedPlace {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  icon: string;
+  category: string;
+  address?: string;
+}
 
 interface WaypointListProps {
   waypoints: Waypoint[];
   onRemove: (index: number) => void;
   onAdd: (wp: Waypoint) => void;
   onReorder: (fromIndex: number, toIndex: number) => void;
+  onNavigateToWaypoint?: (index: number) => void;
 }
 
-export function WaypointList({ waypoints, onRemove, onAdd, onReorder }: WaypointListProps) {
+export function WaypointList({ waypoints, onRemove, onAdd, onReorder, onNavigateToWaypoint }: WaypointListProps) {
   // ---------- Search state ----------
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<GeocodingResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ---------- Saved places (favourites) ----------
+  const [savedPlaces, setSavedPlaces] = useState<SavedPlace[]>([]);
+  const [showFavourites, setShowFavourites] = useState(false);
+  const savedPlacesRef = useRef<SavedPlace[]>([]);
+
+  const refreshSavedPlaces = useCallback(() => {
+    authFetch("/api/places").then((r) => r.ok ? r.json() : []).then((data) => {
+      setSavedPlaces(data);
+      savedPlacesRef.current = data;
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => { refreshSavedPlaces(); }, [refreshSavedPlaces]);
+
+  // Helper: filter saved places by query (instant, no API)
+  const filterSavedPlaces = useCallback((q: string): GeocodingResult[] => {
+    const lower = q.toLowerCase();
+    return savedPlacesRef.current
+      .filter((p) => p.name.toLowerCase().includes(lower) || (p.address || "").toLowerCase().includes(lower))
+      .map((p) => ({
+        lat: p.lat,
+        lng: p.lng,
+        display_name: `⭐ ${p.name}${p.address ? ` — ${p.address}` : ""}`,
+        type: "saved_place",
+      }));
+  }, []);
 
   // ---------- Drag state ----------
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -28,6 +67,7 @@ export function WaypointList({ waypoints, onRemove, onAdd, onReorder }: Waypoint
   // ---------- Search ----------
   const handleSearchChange = useCallback((value: string) => {
     setQuery(value);
+    setShowFavourites(false);
     if (searchTimeout.current) clearTimeout(searchTimeout.current);
 
     if (value.trim().length < 2) {
@@ -36,12 +76,21 @@ export function WaypointList({ waypoints, onRemove, onAdd, onReorder }: Waypoint
       return;
     }
 
-    // Debounce 400ms
+    // INSTANT: show matching saved places immediately (no debounce)
+    const instantMatches = filterSavedPlaces(value.trim());
+    if (instantMatches.length > 0) {
+      setResults(instantMatches);
+      setShowResults(true);
+    }
+
+    // DEBOUNCED: search geocoding APIs after 400ms
     searchTimeout.current = setTimeout(async () => {
       setSearching(true);
       try {
-        const res = await geocodeSearch(value.trim());
-        setResults(res);
+        const apiResults = await geocodeSearch(value.trim());
+        // Merge: saved places first, then API results (re-filter in case saved places changed)
+        const freshMatches = filterSavedPlaces(value.trim());
+        setResults([...freshMatches, ...apiResults]);
         setShowResults(true);
       } catch {
         setResults([]);
@@ -116,7 +165,11 @@ export function WaypointList({ waypoints, onRemove, onAdd, onReorder }: Waypoint
             type="text"
             value={query}
             onChange={(e) => handleSearchChange(e.target.value)}
-            onFocus={() => results.length > 0 && setShowResults(true)}
+            onFocus={() => {
+              refreshSavedPlaces(); // Refresh in case user saved new places
+              if (results.length > 0) setShowResults(true);
+              else if (query.trim().length < 2) setShowFavourites(true);
+            }}
             placeholder="Search address or postcode..."
             className="flex-1 bg-transparent px-2 py-2 text-sm text-primary placeholder:text-muted focus:outline-none"
           />
@@ -126,6 +179,30 @@ export function WaypointList({ waypoints, onRemove, onAdd, onReorder }: Waypoint
             </span>
           )}
         </div>
+
+        {/* Favourites dropdown (shown when input focused + empty) */}
+        {showFavourites && !showResults && savedPlaces.length > 0 && (
+          <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-surface-alt border border-border rounded-lg shadow-xl max-h-52 overflow-y-auto">
+            <div className="px-3 py-1.5 text-[10px] text-muted uppercase tracking-wider border-b border-border/50">
+              ⭐ Saved Places
+            </div>
+            {savedPlaces.map((place) => (
+              <button
+                key={place.id}
+                onClick={() => {
+                  onAdd({ lat: place.lat, lng: place.lng, label: place.name });
+                  setShowFavourites(false);
+                  setQuery("");
+                }}
+                className="w-full text-left px-3 py-2 text-sm text-secondary hover:bg-surface-hover transition-colors border-b border-border/50 last:border-0 flex items-center gap-2"
+              >
+                <span>{place.icon}</span>
+                <span className="truncate">{place.name}</span>
+                {place.address && <span className="text-[10px] text-muted ml-auto truncate max-w-[40%]">{place.address}</span>}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Search results dropdown */}
         {showResults && results.length > 0 && (
@@ -149,11 +226,11 @@ export function WaypointList({ waypoints, onRemove, onAdd, onReorder }: Waypoint
         )}
       </div>
 
-      {/* Click outside to close results */}
-      {showResults && (
+      {/* Click outside to close dropdowns */}
+      {(showResults || showFavourites) && (
         <div
           className="fixed inset-0 z-40"
-          onClick={() => setShowResults(false)}
+          onClick={() => { setShowResults(false); setShowFavourites(false); }}
         />
       )}
 
@@ -189,11 +266,15 @@ export function WaypointList({ waypoints, onRemove, onAdd, onReorder }: Waypoint
                       {getMarkerLabel(i)}
                     </span>
 
-                    {/* Label — click to expand details */}
+                    {/* Label — click to navigate on map + expand details */}
                     <button
-                      onClick={(e) => { e.stopPropagation(); setExpandedIndex(expandedIndex === i ? null : i); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedIndex(expandedIndex === i ? null : i);
+                        onNavigateToWaypoint?.(i);
+                      }}
                       className="text-sm text-secondary truncate text-left hover:text-primary transition-colors min-w-0"
-                      title={wp.label ? `${wp.label}\n${wp.lat.toFixed(6)}, ${wp.lng.toFixed(6)}` : `${wp.lat.toFixed(6)}, ${wp.lng.toFixed(6)}`}
+                      title={wp.label ? `Click to show on map: ${wp.label}` : `Click to show on map`}
                     >
                       {wp.label || `${wp.lat.toFixed(4)}, ${wp.lng.toFixed(4)}`}
                     </button>
@@ -227,6 +308,37 @@ export function WaypointList({ waypoints, onRemove, onAdd, onReorder }: Waypoint
                         <span className="text-muted">Label:</span>
                         <span className="text-muted truncate">{wp.label}</span>
                       </div>
+                    )}
+                    {/* Save as favourite */}
+                    {!savedPlaces.some((p) => Math.abs(p.lat - wp.lat) < 0.001 && Math.abs(p.lng - wp.lng) < 0.001) && (
+                      <button
+                        onClick={async () => {
+                          // Prompt for a short name
+                          const defaultName = wp.label?.split(",")[0]?.trim() || `${wp.lat.toFixed(4)}, ${wp.lng.toFixed(4)}`;
+                          const name = window.prompt("Save as favourite — enter a name:", defaultName);
+                          if (!name) return;
+                          try {
+                            await authFetch("/api/places", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                name: name.trim(),
+                                lat: wp.lat, lng: wp.lng,
+                                icon: "⭐",
+                                address: wp.label || null,
+                              }),
+                            });
+                            const r = await authFetch("/api/places");
+                            if (r.ok) setSavedPlaces(await r.json());
+                          } catch { /* ignore */ }
+                        }}
+                        className="text-[10px] text-blue-500 hover:text-blue-400 transition-colors mt-0.5"
+                      >
+                        ⭐ Save as favourite
+                      </button>
+                    )}
+                    {savedPlaces.some((p) => Math.abs(p.lat - wp.lat) < 0.001 && Math.abs(p.lng - wp.lng) < 0.001) && (
+                      <span className="text-[10px] text-muted">⭐ Saved</span>
                     )}
                   </div>
                 )}
