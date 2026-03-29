@@ -103,15 +103,15 @@ export function WaypointMarkers({
           className="waypoint-popup"
         >
           <div className="flex flex-col gap-1.5 min-w-[140px]">
-            <span className="text-sm font-medium text-zinc-800 truncate">
+            <span className="text-sm font-medium text-primary truncate">
               {waypoints[selectedWaypointIndex].label || `Waypoint ${selectedWaypointIndex + 1}`}
             </span>
-            <div className="flex items-center gap-1 text-[11px] text-zinc-500">
+            <div className="flex items-center gap-1 text-[11px] text-muted">
               <span>{waypoints[selectedWaypointIndex].lat.toFixed(4)}</span>
               <span>,</span>
               <span>{waypoints[selectedWaypointIndex].lng.toFixed(4)}</span>
             </div>
-            <div className="flex gap-2 pt-1 border-t border-zinc-200">
+            <div className="flex gap-2 pt-1 border-t border-border">
               <button
                 onClick={() => {
                   onDeleteWaypoint(selectedWaypointIndex);
@@ -123,7 +123,7 @@ export function WaypointMarkers({
               </button>
               <button
                 onClick={() => onSelectWaypoint(null)}
-                className="flex-1 text-xs px-2 py-1 rounded bg-zinc-100 text-zinc-600 hover:bg-zinc-200 transition-colors"
+                className="flex-1 text-xs px-2 py-1 rounded bg-surface-alt text-muted hover:bg-surface-hover transition-colors"
               >
                 Close
               </button>

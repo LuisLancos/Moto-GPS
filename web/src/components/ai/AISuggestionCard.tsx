@@ -68,7 +68,7 @@ export function AISuggestionCard({
           <div className="flex flex-col gap-0.5">
             {suggestions.day_splits.map((ds) => (
               <div key={ds.day} className="text-xs text-muted">
-                <span className="text-amber-400">Day {ds.day}:</span>{" "}
+                <span className="text-amber-700 dark:text-amber-400">Day {ds.day}:</span>{" "}
                 <span className="text-secondary">{ds.name}</span>
                 {ds.description && (
                   <span className="text-muted ml-1">— {ds.description}</span>
@@ -91,7 +91,7 @@ export function AISuggestionCard({
                 <span>{CATEGORY_ICON[poi.category] || "📍"}</span>
                 <span className="truncate">{poi.name}</span>
                 {poi.is_biker_friendly && (
-                  <span className="text-[9px] text-amber-400" title="Biker-friendly">★</span>
+                  <span className="text-[9px] text-amber-700 dark:text-amber-400" title="Biker-friendly">★</span>
                 )}
               </div>
             ))}
@@ -106,7 +106,7 @@ export function AISuggestionCard({
 
       {/* Actions */}
       {applied ? (
-        <div className="text-xs text-green-400 font-medium pt-1">✓ Applied to route</div>
+        <div className="text-xs text-green-700 dark:text-green-400 font-medium pt-1">✓ Applied to route</div>
       ) : (
         <div className="flex items-center gap-2 pt-1">
           {hasWaypoints && (

@@ -65,7 +65,7 @@ export function MapContextMenu({ x, y, actions, onClose }: MapContextMenuProps) 
             disabled={action.disabled}
             className={`
               w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left transition-colors
-              ${action.disabled ? "text-zinc-600 cursor-not-allowed" : ""}
+              ${action.disabled ? "text-muted cursor-not-allowed" : ""}
               ${action.danger && !action.disabled ? "text-red-400 hover:bg-red-950/40" : ""}
               ${!action.danger && !action.disabled ? "text-secondary hover:bg-surface-hover" : ""}
             `}

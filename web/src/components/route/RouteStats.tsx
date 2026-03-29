@@ -152,9 +152,9 @@ export function RouteStats({ route, selectedDay, dayStats, defaultVehicle }: Rou
               <div
                 className={`text-lg font-semibold ${
                   scorePercent >= 50
-                    ? "text-green-400"
+                    ? "text-green-700 dark:text-green-400"
                     : scorePercent >= 30
-                      ? "text-yellow-400"
+                      ? "text-yellow-700 dark:text-yellow-400"
                       : "text-red-400"
                 }`}
               >

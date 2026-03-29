@@ -180,7 +180,7 @@ export function WaypointList({ waypoints, onRemove, onAdd, onReorder }: Waypoint
                 >
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     {/* Drag handle */}
-                    <span className="text-zinc-600 text-xs cursor-grab select-none shrink-0">⠿</span>
+                    <span className="text-muted text-xs cursor-grab select-none shrink-0">⠿</span>
 
                     {/* Marker */}
                     <span

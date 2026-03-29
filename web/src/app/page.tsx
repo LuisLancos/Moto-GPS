@@ -741,7 +741,7 @@ export default function Home() {
       <TopNav />
       <div className="flex flex-1 min-h-0">
         {/* Sidebar */}
-        <aside className="hidden md:flex md:w-80 lg:w-96 flex-col border-r border-zinc-800 bg-zinc-900">
+        <aside className="hidden md:flex md:w-80 lg:w-96 flex-col border-r border-border bg-surface">
           <RoutePanel {...panelProps} />
         </aside>
 
@@ -782,8 +782,8 @@ export default function Home() {
         />
 
         {/* Mobile bottom sheet */}
-        <div className="md:hidden absolute bottom-0 left-0 right-0 bg-zinc-900/95 backdrop-blur border-t border-zinc-800 max-h-[40vh] overflow-y-auto rounded-t-xl">
-          <div className="w-10 h-1 bg-zinc-600 rounded-full mx-auto mt-2 mb-1" />
+        <div className="md:hidden absolute bottom-0 left-0 right-0 bg-overlay backdrop-blur border-t border-border max-h-[40vh] overflow-y-auto rounded-t-xl">
+          <div className="w-10 h-1 bg-surface-hover rounded-full mx-auto mt-2 mb-1" />
           <RoutePanel {...panelProps} />
         </div>
       </main>

@@ -96,14 +96,14 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh, myGr
                     {isShared && (
                       <span className={`text-[10px] px-1.5 py-0.5 rounded ${
                         trip.ownership === "shared_editor"
-                          ? "bg-blue-900/50 text-blue-300"
+                          ? "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300"
                           : "bg-surface-hover/50 text-muted"
                       }`}>
                         {trip.ownership === "shared_editor" ? "shared • edit" : "shared • view"}
                       </span>
                     )}
                     {trip.is_multiday && trip.day_count && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-600/40 text-amber-300">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-600/40 dark:text-amber-300">
                         {trip.day_count} days
                       </span>
                     )}
@@ -117,7 +117,7 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh, myGr
 
                 {/* Owner info for shared trips */}
                 {isShared && trip.owner_name && (
-                  <p className="text-[10px] text-indigo-400/70">by {trip.owner_name}</p>
+                  <p className="text-[10px] text-indigo-700 dark:text-indigo-400/70">by {trip.owner_name}</p>
                 )}
 
                 {/* Description */}
@@ -131,8 +131,8 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh, myGr
                   <span>{formatTime(trip.total_time_s)}</span>
                   {trip.total_moto_score !== null && trip.total_moto_score !== undefined && (
                     <span className={
-                      trip.total_moto_score >= 0.5 ? "text-green-500" :
-                      trip.total_moto_score >= 0.3 ? "text-yellow-500" : "text-muted"
+                      trip.total_moto_score >= 0.5 ? "text-green-700 dark:text-green-500" :
+                      trip.total_moto_score >= 0.3 ? "text-yellow-700 dark:text-yellow-500" : "text-muted"
                     }>
                       Score: {(trip.total_moto_score * 100).toFixed(0)}
                     </span>
@@ -146,12 +146,12 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh, myGr
                     {sharedGroups.map((g) => (
                       <span
                         key={g.id}
-                        className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-indigo-900/40 text-indigo-300 border border-indigo-800/40"
+                        className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 border border-indigo-200 dark:bg-indigo-900/40 dark:text-indigo-300 dark:border-indigo-800/40"
                       >
                         {g.name}
                         <button
                           onClick={(e) => { e.stopPropagation(); handleUnshare(g.id, g.shared_item_id); }}
-                          className="text-indigo-400/60 hover:text-red-400 ml-0.5"
+                          className="text-indigo-600 hover:text-red-600 dark:text-indigo-400/60 dark:hover:text-red-400 ml-0.5"
                           title={`Unshare from ${g.name}`}
                         >
                           ×
@@ -169,7 +169,7 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh, myGr
                   >
                     <span className="text-[10px] text-muted">Share with group:</span>
                     {myGroups.filter((g) => g.my_role !== "viewer").length === 0 ? (
-                      <span className="text-[10px] text-zinc-600">No groups available</span>
+                      <span className="text-[10px] text-muted">No groups available</span>
                     ) : (
                       myGroups
                         .filter((g) => g.my_role !== "viewer")
@@ -185,7 +185,7 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh, myGr
                         ))
                     )}
                     {myGroups.filter((g) => g.my_role !== "viewer").filter((g) => !sharedGroups.some((sg) => sg.id === g.id)).length === 0 && sharedGroups.length > 0 && (
-                      <span className="text-[10px] text-zinc-600">Already shared with all groups</span>
+                      <span className="text-[10px] text-muted">Already shared with all groups</span>
                     )}
                     <button
                       onClick={() => setSharingTripId(null)}
