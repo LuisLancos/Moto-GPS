@@ -1,7 +1,11 @@
+export type WaypointType = "waypoint" | "overnight" | "fuel" | "restaurant" | "attraction" | "hotel" | "biker_cafe";
+
 export interface Waypoint {
   lat: number;
   lng: number;
   label?: string;
+  type?: WaypointType;  // defaults to "waypoint"
+  is_overnight?: boolean;  // backward compat — true when type is "overnight" or "hotel"
 }
 
 export type RouteType = "scenic" | "balanced" | "fast" | "custom";
@@ -298,7 +302,18 @@ export interface AISuggestions {
   pois: POIResult[];
 }
 
+export interface RouteAction {
+  type: "remove_waypoint" | "move_waypoint" | "add_waypoint" | "recalculate";
+  index?: number;
+  lat?: number;
+  lng?: number;
+  label?: string;
+  after_index?: number;
+  reason: string;
+}
+
 export interface AIChatResponse {
   reply: string;
   suggestions?: AISuggestions;
+  route_actions?: RouteAction[];
 }

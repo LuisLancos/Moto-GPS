@@ -78,6 +78,8 @@ interface MapProps {
   navigatedAnomaly?: RouteAnomaly | null;
   // Multi-day support
   overnightStopIndices?: Set<number>;
+  onToggleOvernightStop?: (index: number) => void;
+  onSetWaypointType?: (index: number, type: import("@/lib/types").WaypointType) => void;
   dayStats?: DayOverlayWithStats[];
   selectedDay?: number | null;
   // AI POIs
@@ -86,6 +88,8 @@ interface MapProps {
   onClearPOIs?: () => void;
   // Route POI overlay controls
   poiOverlaySlot?: React.ReactNode;
+  // Fly to a specific coordinate (triggered from waypoint list click)
+  flyToCoord?: { lat: number; lng: number; zoom?: number } | null;
 }
 
 export function Map({
@@ -103,12 +107,15 @@ export function Map({
   hasRoutes,
   navigatedAnomaly,
   overnightStopIndices,
+  onToggleOvernightStop,
+  onSetWaypointType,
   dayStats,
   selectedDay,
   pois,
   onAddPOIAsWaypoint,
   onClearPOIs,
   poiOverlaySlot,
+  flyToCoord,
 }: MapProps) {
   const { theme } = useTheme();
   const mapStyle = useMemo(() => getMapStyle(theme), [theme]);
@@ -197,6 +204,16 @@ export function Map({
       { padding: 80, duration: 800, maxZoom: 14 },
     );
   }, [navigatedAnomaly]);
+
+  // Fly to specific coordinate (from waypoint list click)
+  useEffect(() => {
+    if (!mapRef.current || !flyToCoord) return;
+    mapRef.current.flyTo({
+      center: [flyToCoord.lng, flyToCoord.lat],
+      zoom: flyToCoord.zoom ?? 13,
+      duration: 600,
+    });
+  }, [flyToCoord]);
 
   // Anomaly highlight GeoJSON — uses actual route shape (not a straight line)
   const anomalyHighlightGeoJson = useMemo(() => {
@@ -390,6 +407,8 @@ export function Map({
         onSelectWaypoint={onSelectWaypoint}
         onDeleteWaypoint={onDeleteWaypoint}
         onMoveWaypoint={onMoveWaypoint}
+        onToggleOvernightStop={onToggleOvernightStop}
+        onSetWaypointType={onSetWaypointType}
       />
 
       {/* Overlay toggle */}
@@ -444,7 +463,7 @@ export function Map({
           />
         </Source>
       )}
-      {/* Anomaly location marker */}
+      {/* Anomaly location marker — pointer-events-none so it doesn't block waypoint clicks */}
       {navigatedAnomaly?.segment && (
         <Marker
           longitude={
@@ -455,13 +474,15 @@ export function Map({
           }
           anchor="center"
         >
-          <div className={`flex items-center justify-center w-8 h-8 rounded-full border-2 text-sm font-bold shadow-lg ${
-            navigatedAnomaly.severity === "issue"
-              ? "bg-red-600/90 border-red-400 text-white"
-              : navigatedAnomaly.severity === "warning"
-              ? "bg-amber-600/90 border-amber-400 text-white"
-              : "bg-blue-600/90 border-blue-400 text-white"
-          }`}>
+          <div
+            className={`flex items-center justify-center w-8 h-8 rounded-full border-2 text-sm font-bold shadow-lg pointer-events-none ${
+              navigatedAnomaly.severity === "issue"
+                ? "bg-red-600/90 border-red-400 text-white"
+                : navigatedAnomaly.severity === "warning"
+                ? "bg-amber-600/90 border-amber-400 text-white"
+                : "bg-blue-600/90 border-blue-400 text-white"
+            }`}
+          >
             {navigatedAnomaly.severity === "issue" ? "⚠" : navigatedAnomaly.severity === "warning" ? "!" : "💡"}
           </div>
         </Marker>

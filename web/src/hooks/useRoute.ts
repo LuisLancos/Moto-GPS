@@ -81,6 +81,24 @@ export function useRoute() {
     );
   }, []);
 
+  // Toggle overnight status on a waypoint
+  const setWaypointOvernight = useCallback((index: number, isOvernight: boolean) => {
+    setWaypoints((prev) =>
+      prev.map((wp, i) => i === index ? { ...wp, is_overnight: isOvernight, type: isOvernight ? "overnight" : "waypoint" } : wp)
+    );
+  }, []);
+
+  // Set waypoint type (normal, overnight, fuel, restaurant, attraction, biker_cafe)
+  const setWaypointType = useCallback((index: number, type: import("@/lib/types").WaypointType) => {
+    setWaypoints((prev) =>
+      prev.map((wp, i) => i === index ? {
+        ...wp,
+        type,
+        is_overnight: type === "overnight" || type === "hotel",
+      } : wp)
+    );
+  }, []);
+
   const reorderWaypoints = useCallback((fromIndex: number, toIndex: number) => {
     setWaypoints((prev) => {
       if (fromIndex === toIndex) return prev;
@@ -178,6 +196,8 @@ export function useRoute() {
   useEffect(() => {
     if (hasRoutes && waypointsKey !== lastCalcKeyRef.current) {
       setRouteStale(true);
+      // Clear old analysis — it's stale now and may show phantom anomalies
+      setAnalysis(null);
     }
   }, [waypointsKey, hasRoutes]);
 
@@ -315,6 +335,8 @@ export function useRoute() {
     removeWaypoint,
     moveWaypoint,
     updateWaypointLabel,
+    setWaypointOvernight,
+    setWaypointType,
     reorderWaypoints,
     clearWaypoints,
     setSelectedRouteIndex,

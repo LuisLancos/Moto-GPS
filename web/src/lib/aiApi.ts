@@ -3,12 +3,13 @@
  */
 
 import { authFetch } from "./authApi";
-import type { AIChatMessage, AIChatResponse, POIResult, SuggestedWaypoint, Waypoint } from "./types";
+import type { AIChatMessage, AIChatResponse, POIResult, RouteResult, SuggestedWaypoint, Waypoint } from "./types";
 
 export async function sendAIMessage(
   messages: AIChatMessage[],
   routeType: string = "balanced",
   currentRouteWaypoints?: Waypoint[],
+  currentRouteData?: RouteResult,
 ): Promise<AIChatResponse> {
   const body: Record<string, unknown> = {
     messages: messages.map((m) => ({ role: m.role, content: m.content })),
@@ -19,6 +20,10 @@ export async function sendAIMessage(
     body.current_route_waypoints = currentRouteWaypoints.map((w) => ({
       lat: w.lat, lng: w.lng, label: w.label,
     }));
+  }
+  // Pass full route data for AI route analysis/repair tools
+  if (currentRouteData) {
+    body.current_route_data = currentRouteData;
   }
   const res = await authFetch("/api/ai-planner/chat", {
     method: "POST",

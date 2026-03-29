@@ -1,17 +1,21 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import type { AIChatMessage, AISuggestions } from "@/lib/types";
+import type { AIChatMessage, AISuggestions, RouteAction } from "@/lib/types";
 import { AISuggestionCard } from "./AISuggestionCard";
+import { AIRouteActionsCard } from "./AIRouteActionsCard";
 
 interface AIPlannerChatProps {
   messages: AIChatMessage[];
   suggestions: AISuggestions | null;
+  routeActions: RouteAction[];
   isLoading: boolean;
   error: string | null;
   onSendMessage: (text: string) => void;
   onApplySuggestions: () => void;
   onDismissSuggestions: () => void;
+  onApplyRouteActions: () => void;
+  onDismissRouteActions: () => void;
   onEnrichPOIs: () => void;
   onClearChat: () => void;
   appliedMessageIdx: number | null;
@@ -28,11 +32,14 @@ const SUGGESTION_CHIPS = [
 export function AIPlannerChat({
   messages,
   suggestions,
+  routeActions,
   isLoading,
   error,
   onSendMessage,
   onApplySuggestions,
   onDismissSuggestions,
+  onApplyRouteActions,
+  onDismissRouteActions,
   onEnrichPOIs,
   onClearChat,
   appliedMessageIdx,
@@ -141,6 +148,15 @@ export function AIPlannerChat({
             onApply={onApplySuggestions}
             onDismiss={onDismissSuggestions}
             onEnrichPOIs={onEnrichPOIs}
+          />
+        )}
+
+        {/* Route actions card (from AI route analysis/repair) */}
+        {routeActions.length > 0 && (
+          <AIRouteActionsCard
+            actions={routeActions}
+            onApply={onApplyRouteActions}
+            onDismiss={onDismissRouteActions}
           />
         )}
 

@@ -42,7 +42,9 @@ async def ai_chat(
         messages,
         route_type=req.route_type,
         current_route_waypoints=req.current_route_waypoints,
-        db=db,  # Pass DB session for real POI enrichment
+        current_route_data=req.current_route_data,
+        db=db,
+        user_id=user["id"],
     )
 
     log.info(

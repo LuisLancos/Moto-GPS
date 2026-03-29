@@ -29,6 +29,7 @@ interface RoutePanelProps {
   onRemoveWaypoint: (index: number) => void;
   onAddWaypoint: (wp: Waypoint) => void;
   onReorderWaypoints: (from: number, to: number) => void;
+  onNavigateToWaypoint?: (index: number) => void;
   onClear: () => void;
   onCalculate: () => void;
   onRouteSelect: (index: number) => void;
@@ -54,6 +55,7 @@ interface RoutePanelProps {
   aiPlanner?: {
     messages: AIChatMessage[];
     suggestions: AISuggestions | null;
+    routeActions: import("@/lib/types").RouteAction[];
     isOpen: boolean;
     isLoading: boolean;
     error: string | null;
@@ -62,6 +64,8 @@ interface RoutePanelProps {
     onSendMessage: (text: string) => void;
     onApplySuggestions: () => void;
     onDismissSuggestions: () => void;
+    onApplyRouteActions: () => void;
+    onDismissRouteActions: () => void;
     onEnrichPOIs: () => void;
     onClearChat: () => void;
   };
@@ -103,6 +107,7 @@ export function RoutePanel({
   onRemoveWaypoint,
   onAddWaypoint,
   onReorderWaypoints,
+  onNavigateToWaypoint,
   onClear,
   onCalculate,
   onRouteSelect,
@@ -208,11 +213,14 @@ export function RoutePanel({
             <AIPlannerChat
               messages={aiPlanner.messages}
               suggestions={aiPlanner.suggestions}
+              routeActions={aiPlanner.routeActions}
               isLoading={aiPlanner.isLoading}
               error={aiPlanner.error}
               onSendMessage={aiPlanner.onSendMessage}
               onApplySuggestions={aiPlanner.onApplySuggestions}
               onDismissSuggestions={aiPlanner.onDismissSuggestions}
+              onApplyRouteActions={aiPlanner.onApplyRouteActions}
+              onDismissRouteActions={aiPlanner.onDismissRouteActions}
               onEnrichPOIs={aiPlanner.onEnrichPOIs}
               onClearChat={aiPlanner.onClearChat}
               appliedMessageIdx={aiPlanner.appliedMessageIdx}
@@ -237,6 +245,7 @@ export function RoutePanel({
         onRemove={onRemoveWaypoint}
         onAdd={onAddWaypoint}
         onReorder={onReorderWaypoints}
+        onNavigateToWaypoint={onNavigateToWaypoint}
       />
 
       {/* Route Type Selector */}

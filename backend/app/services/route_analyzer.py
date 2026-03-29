@@ -156,9 +156,18 @@ def detect_backtracking(waypoints: list[Waypoint], route: RouteResult) -> list[R
 
 
 def detect_close_proximity(waypoints: list[Waypoint], route: RouteResult) -> list[RouteAnomaly]:
-    """Detect consecutive waypoints that are very close together."""
+    """Detect consecutive waypoints that are very close together.
+
+    Skips pairs where either waypoint is an overnight stop or POI (hotels, fuel stations)
+    since those are intentionally placed near other waypoints.
+    """
     if len(waypoints) < 3:
         return []
+
+    # Keywords indicating intentional close placement
+    _skip_keywords = {"hotel", "b&b", "inn", "lodge", "guest", "hostel", "overnight",
+                      "accommodation", "fuel", "petrol", "shell", "bp", "esso", "four seasons",
+                      "premier inn", "travelodge", "holiday inn"}
 
     anomalies = []
     distances = []
@@ -167,10 +176,19 @@ def detect_close_proximity(waypoints: list[Waypoint], route: RouteResult) -> lis
         distances.append(d)
 
     avg_spacing = sum(distances) / len(distances) if distances else 0
-    threshold = max(avg_spacing * 0.10, 3000)  # 10% of average or 3km floor
+    threshold = max(avg_spacing * 0.08, 1500)  # 8% of average or 1.5km floor
 
     for i, d in enumerate(distances):
         if d < threshold and len(distances) > 1:
+            # Skip if either waypoint looks like an overnight stop or POI
+            wp1_label = (getattr(waypoints[i], "label", "") or "").lower()
+            wp2_label = (getattr(waypoints[i + 1], "label", "") or "").lower()
+            if any(kw in wp1_label for kw in _skip_keywords) or any(kw in wp2_label for kw in _skip_keywords):
+                continue
+            # Skip if either has is_overnight flag
+            if getattr(waypoints[i], "is_overnight", False) or getattr(waypoints[i + 1], "is_overnight", False):
+                continue
+
             si, ei = _shape_index_for_leg(route, i)
             wp1_label = waypoints[i].label or f"waypoint {i + 1}"
             wp2_label = waypoints[i + 1].label or f"waypoint {i + 2}"

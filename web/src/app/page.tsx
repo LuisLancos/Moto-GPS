@@ -172,6 +172,21 @@ export default function Home() {
 
   const allMapPOIs = [...mapPOIs, ...routePOIs, ...suggestionPOIs];
 
+  // ---------- Overnight stop indices (derived from waypoint properties) ----------
+  const overnightIndices = useMemo(() => {
+    const indices = new Set<number>();
+    route.waypoints.forEach((wp, i) => {
+      if (wp.is_overnight) indices.add(i);
+    });
+    return indices;
+  }, [route.waypoints]);
+
+  const handleToggleOvernight = useCallback((index: number) => {
+    const wp = route.waypoints[index];
+    if (!wp) return;
+    route.setWaypointOvernight(index, !wp.is_overnight);
+  }, [route]);
+
   // ---------- Saved Trips state ----------
   const [trips, setTrips] = useState<TripSummary[]>([]);
   const [tripsLoading, setTripsLoading] = useState(false);
@@ -512,6 +527,17 @@ export default function Home() {
     [route.removeWaypoint],
   );
 
+  // ---------- Map fly-to state (for navigating from waypoint list) ----------
+  const [flyToCoord, setFlyToCoord] = useState<{ lat: number; lng: number; zoom?: number } | null>(null);
+
+  const handleNavigateToWaypoint = useCallback((index: number) => {
+    const wp = route.waypoints[index];
+    if (!wp) return;
+    // Set flyTo with a new object reference each time to trigger the effect
+    setFlyToCoord({ lat: wp.lat, lng: wp.lng, zoom: 13 });
+    setSelectedWaypointIndex(index);
+  }, [route.waypoints]);
+
   // ---------- Anomaly highlight + navigation state ----------
   const [highlightedAnomalyIndex, setHighlightedAnomalyIndex] = useState<number | null>(null);
   const [navigatedAnomaly, setNavigatedAnomaly] = useState<import("@/lib/types").RouteAnomaly | null>(null);
@@ -528,6 +554,13 @@ export default function Home() {
     setNavigatedAnomaly(null);
     setHighlightedAnomalyIndex(null);
   }, [route.analysis]);
+
+  // Auto-dismiss anomaly highlight after 10 seconds
+  useEffect(() => {
+    if (!navigatedAnomaly) return;
+    const timer = setTimeout(() => setNavigatedAnomaly(null), 10000);
+    return () => clearTimeout(timer);
+  }, [navigatedAnomaly]);
 
   // ---------- Smart map click: insert at closest segment when route exists ----------
   const handleSmartMapClick = useCallback(
@@ -615,6 +648,45 @@ export default function Home() {
     }
   }, [aiPlanner, route, tripPlanner]);
 
+  // AI planner: apply route actions (remove/add/move waypoints, recalculate)
+  const handleApplyRouteActions = useCallback(() => {
+    const actions = aiPlanner.routeActions;
+    if (!actions?.length) return;
+
+    // Apply actions in order, adjusting indices for removals
+    let indexOffset = 0;
+    for (const action of actions) {
+      switch (action.type) {
+        case "remove_waypoint":
+          if (action.index != null) {
+            route.removeWaypoint(action.index + indexOffset);
+            indexOffset--; // subsequent indices shift down
+          }
+          break;
+        case "add_waypoint":
+          if (action.lat != null && action.lng != null) {
+            const wp = { lat: action.lat, lng: action.lng, label: action.label || "AI waypoint" };
+            if (action.after_index != null) {
+              route.insertWaypoint(wp, action.after_index + indexOffset + 1);
+              indexOffset++; // subsequent indices shift up
+            } else {
+              route.addWaypoint(wp);
+            }
+          }
+          break;
+        case "move_waypoint":
+          if (action.index != null && action.lat != null && action.lng != null) {
+            route.moveWaypoint(action.index + indexOffset, action.lat, action.lng);
+          }
+          break;
+        case "recalculate":
+          setTimeout(() => route.calculateRoute(), 300);
+          break;
+      }
+    }
+    aiPlanner.clearRouteActions();
+  }, [aiPlanner, route]);
+
   // Route calculation — uses multi-mode when days have different route types,
   // otherwise calculates as a single full route.
   const handleCalculateRoute = useCallback(() => {
@@ -659,6 +731,7 @@ export default function Home() {
     onRemoveWaypoint: route.removeWaypoint,
     onAddWaypoint: handleSmartMapClick,
     onReorderWaypoints: route.reorderWaypoints,
+    onNavigateToWaypoint: handleNavigateToWaypoint,
     onClear: () => { route.clearWaypoints(); setLoadedTripId(null); setLoadedTripName(null); setLoadedTripIsMultiday(false); },
     onCalculate: handleCalculateRoute,
     onRouteSelect: route.setSelectedRouteIndex,
@@ -699,14 +772,22 @@ export default function Home() {
     aiPlanner: {
       messages: aiPlanner.messages,
       suggestions: aiPlanner.suggestions,
+      routeActions: aiPlanner.routeActions,
       isOpen: aiPlanner.isOpen,
       isLoading: aiPlanner.isLoading,
       error: aiPlanner.error,
       appliedMessageIdx: aiAppliedIdx,
       onToggle: aiPlanner.toggle,
-      onSendMessage: (text: string) => aiPlanner.sendMessage(text, route.routeType, route.waypoints.length >= 2 ? route.waypoints : undefined),
+      onSendMessage: (text: string) => aiPlanner.sendMessage(
+        text,
+        route.routeType,
+        route.waypoints.length >= 2 ? route.waypoints : undefined,
+        route.routes[route.selectedRouteIndex] || undefined,
+      ),
       onApplySuggestions: handleApplyAISuggestions,
       onDismissSuggestions: aiPlanner.dismissSuggestions,
+      onApplyRouteActions: handleApplyRouteActions,
+      onDismissRouteActions: aiPlanner.clearRouteActions,
       onEnrichPOIs: () => aiPlanner.loadPOIs(),
       onClearChat: () => { aiPlanner.clearChat(); setAiAppliedIdx(null); },
     },
@@ -761,9 +842,12 @@ export default function Home() {
           onRecalculate={route.calculateRoute}
           hasRoutes={route.routes.length > 0}
           navigatedAnomaly={navigatedAnomaly ?? undefined}
-          overnightStopIndices={tripPlanner.overnightStopIndices}
+          overnightStopIndices={overnightIndices}
+          onToggleOvernightStop={handleToggleOvernight}
+          onSetWaypointType={route.setWaypointType}
           dayStats={tripPlanner.dayStats}
           selectedDay={tripPlanner.selectedDay}
+          flyToCoord={flyToCoord}
           pois={allMapPOIs}
           onAddPOIAsWaypoint={(poi) => {
             handleSmartMapClick({ lat: poi.lat, lng: poi.lng, label: poi.name });
