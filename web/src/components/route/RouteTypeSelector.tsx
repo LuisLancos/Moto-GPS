@@ -38,7 +38,7 @@ export function RouteTypeSelector({
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+      <span className="text-xs font-medium text-muted uppercase tracking-wider">
         Route Type
       </span>
 
@@ -56,7 +56,7 @@ export function RouteTypeSelector({
                 ${
                   selected
                     ? "bg-blue-950/60 border-blue-500 text-blue-300"
-                    : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:border-zinc-500 hover:text-zinc-300"
+                    : "bg-surface-alt border-border text-muted hover:border-surface-hover hover:text-secondary"
                 }
               `}
             >
@@ -69,12 +69,12 @@ export function RouteTypeSelector({
 
       {/* Preset details — shown automatically when a preset is selected */}
       {isPreset && preset && (
-        <div className="bg-zinc-800/50 rounded-lg px-3 py-2.5 flex flex-col gap-2 border border-zinc-700/50">
+        <div className="bg-surface-alt/50 rounded-lg px-3 py-2.5 flex flex-col gap-2 border border-border/50">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] text-zinc-400 font-semibold">
+            <span className="text-[11px] text-muted font-semibold">
               {ROUTE_TYPE_META[routeType].icon} {ROUTE_TYPE_META[routeType].label} settings
             </span>
-            <span className="text-[10px] text-zinc-600">
+            <span className="text-[10px] text-muted">
               Select Custom to edit
             </span>
           </div>
@@ -87,16 +87,16 @@ export function RouteTypeSelector({
               return (
                 <div key={key} className="flex items-center gap-2">
                   <span className="text-xs w-4 text-center">{icon}</span>
-                  <span className="text-[11px] text-zinc-400 w-24 shrink-0">
+                  <span className="text-[11px] text-muted w-24 shrink-0">
                     {label}
                   </span>
-                  <div className="flex-1 h-1.5 bg-zinc-700/50 rounded-full overflow-hidden">
+                  <div className="flex-1 h-1.5 bg-surface-hover/50 rounded-full overflow-hidden">
                     <div
                       className="h-full rounded-full bg-blue-500/70 transition-all"
                       style={{ width: `${pct}%` }}
                     />
                   </div>
-                  <span className="text-[11px] text-zinc-300 font-mono w-8 text-right">
+                  <span className="text-[11px] text-secondary font-mono w-8 text-right">
                     {pct}%
                   </span>
                 </div>
@@ -105,7 +105,7 @@ export function RouteTypeSelector({
           </div>
 
           {/* Flags */}
-          <div className="flex flex-wrap gap-2 pt-1 border-t border-zinc-700/40">
+          <div className="flex flex-wrap gap-2 pt-1 border-t border-border/40">
             <FlagBadge
               active={preset.avoid_motorways}
               activeLabel="No motorways"
@@ -116,7 +116,7 @@ export function RouteTypeSelector({
               activeLabel="No dual c/ways"
               inactiveLabel="Dual c/ways OK"
             />
-            <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded bg-zinc-700/40 text-zinc-400">
+            <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded bg-surface-hover/40 text-muted">
               Max detour: {preset.max_detour_factor}x
             </span>
           </div>
@@ -148,7 +148,7 @@ function FlagBadge({
       className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded ${
         active
           ? "bg-green-900/30 text-green-400 border border-green-800/40"
-          : "bg-zinc-700/40 text-zinc-500"
+          : "bg-surface-hover/40 text-muted"
       }`}
     >
       <span>{active ? "✓" : "✗"}</span>

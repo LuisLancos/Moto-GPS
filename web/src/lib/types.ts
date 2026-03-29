@@ -211,6 +211,8 @@ export interface DayOverlay {
   description?: string;
   start_waypoint_idx: number;
   end_waypoint_idx: number;
+  route_type?: RouteType;          // undefined = synced with trip default
+  preferences?: RoutePreferences;   // undefined = use route_type preset
 }
 
 export interface DayOverlayWithStats extends DayOverlay {
@@ -241,4 +243,62 @@ export interface MultiDayTripDetail extends MultiDayTripSummary {
   route_data: RouteResult | null;
   day_overlays: DayOverlay[];
   daily_target_m: number | null;
+}
+
+// ---------- AI Trip Planner ----------
+
+export interface AIChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  suggestions?: AISuggestions;
+  timestamp?: string;
+}
+
+export interface POIResult {
+  lat: number;
+  lng: number;
+  name: string;
+  category: string;
+  description?: string;
+  is_biker_friendly?: boolean;
+  // Rich detail fields from OSM tags
+  brand?: string;
+  address?: string;
+  phone?: string;
+  website?: string;
+  opening_hours?: string;
+  cuisine?: string;
+  wikidata?: string;
+  distance_km?: number;
+}
+
+export interface DaySuggestion {
+  day: number;
+  hotel: POIResult | null;
+  fuel_stops: POIResult[];
+}
+
+export interface SuggestedWaypoint {
+  lat: number;
+  lng: number;
+  label: string;
+}
+
+export interface SuggestedDaySplit {
+  day: number;
+  name: string;
+  description?: string;
+  start_waypoint_idx: number;
+  end_waypoint_idx: number;
+}
+
+export interface AISuggestions {
+  waypoints: SuggestedWaypoint[];
+  day_splits: SuggestedDaySplit[];
+  pois: POIResult[];
+}
+
+export interface AIChatResponse {
+  reply: string;
+  suggestions?: AISuggestions;
 }

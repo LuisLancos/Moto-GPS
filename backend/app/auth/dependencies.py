@@ -37,7 +37,7 @@ async def get_current_user(
 
     result = await db.execute(
         text(
-            "SELECT id, email, name, is_admin, is_blocked "
+            "SELECT id, email, name, is_admin, is_blocked, preferences "
             "FROM users WHERE id = :id"
         ),
         {"id": user_id},
@@ -52,6 +52,7 @@ async def get_current_user(
         "name": row.name,
         "is_admin": row.is_admin,
         "is_blocked": row.is_blocked,
+        "preferences": row.preferences if hasattr(row, "preferences") else {},
     }
 
     if user["is_blocked"]:
@@ -90,7 +91,7 @@ async def get_optional_user(
 
     result = await db.execute(
         text(
-            "SELECT id, email, name, is_admin, is_blocked "
+            "SELECT id, email, name, is_admin, is_blocked, preferences "
             "FROM users WHERE id = :id"
         ),
         {"id": user_id},
@@ -105,4 +106,5 @@ async def get_optional_user(
         "name": row.name,
         "is_admin": row.is_admin,
         "is_blocked": row.is_blocked,
+        "preferences": row.preferences if hasattr(row, "preferences") else {},
     }

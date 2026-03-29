@@ -12,3 +12,5 @@ python-multipart
 pyjwt==2.9.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.2.1
+google-genai>=1.0.0
+openai>=1.0.0

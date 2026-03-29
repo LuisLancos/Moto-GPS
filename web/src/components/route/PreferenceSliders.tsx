@@ -27,8 +27,8 @@ function Slider({
   return (
     <div className="flex flex-col gap-1">
       <div className="flex justify-between text-xs">
-        <span className="text-zinc-400">{label}</span>
-        <span className="text-zinc-300 font-mono">
+        <span className="text-muted">{label}</span>
+        <span className="text-secondary font-mono">
           {(value * 100).toFixed(0)}
           {suffix}
         </span>
@@ -40,7 +40,7 @@ function Slider({
         step={step}
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
-        className="w-full h-1.5 rounded-full appearance-none bg-zinc-700 accent-blue-500 cursor-pointer"
+        className="w-full h-1.5 rounded-full appearance-none bg-surface-hover accent-blue-500 cursor-pointer"
       />
     </div>
   );
@@ -57,7 +57,7 @@ function Toggle({
 }) {
   return (
     <label className="flex items-center justify-between cursor-pointer">
-      <span className="text-xs text-zinc-400">{label}</span>
+      <span className="text-xs text-muted">{label}</span>
       <button
         type="button"
         role="switch"
@@ -65,7 +65,7 @@ function Toggle({
         onClick={() => onChange(!checked)}
         className={`
           relative w-9 h-5 rounded-full transition-colors
-          ${checked ? "bg-blue-600" : "bg-zinc-600"}
+          ${checked ? "bg-blue-600" : "bg-surface-hover"}
         `}
       >
         <span
@@ -89,7 +89,7 @@ export function PreferenceSliders({
 
   return (
     <div className="flex flex-col gap-3">
-      <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+      <span className="text-xs font-medium text-muted uppercase tracking-wider">
         Route Preferences
       </span>
 
@@ -133,7 +133,7 @@ export function PreferenceSliders({
         suffix="x"
       />
 
-      <div className="border-t border-zinc-800 pt-2 flex flex-col gap-2">
+      <div className="border-t border-border pt-2 flex flex-col gap-2">
         <Toggle
           label="Avoid motorways"
           checked={preferences.avoid_motorways}

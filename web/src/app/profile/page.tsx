@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthContext } from "@/components/auth/AuthProvider";
-import { updateProfile, changePassword } from "@/lib/authApi";
+import { updateProfile, changePassword, updatePreferences } from "@/lib/authApi";
+import { useUnits, type UnitSystem } from "@/contexts/UnitContext";
 import { authFetch } from "@/lib/authApi";
 import { TopNav } from "@/components/nav/TopNav";
 import Link from "next/link";
@@ -17,6 +18,12 @@ interface Vehicle {
   picture_base64: string | null;
   is_default: boolean;
   created_at: string;
+  fuel_type: string;
+  consumption: number | null;
+  consumption_unit: string;
+  tank_capacity: number | null;
+  fuel_cost_per_unit: number | null;
+  fuel_cost_currency: string;
 }
 
 const VEHICLE_TYPES = ["Motorcycle", "Car", "Scooter", "Trike", "Quad", "Other"];
@@ -51,6 +58,12 @@ export default function ProfilePage() {
   const [vYear, setVYear] = useState("");
   const [vPicture, setVPicture] = useState<string | null>(null);
   const [vDefault, setVDefault] = useState(false);
+  const [vFuelType, setVFuelType] = useState("petrol");
+  const [vConsumption, setVConsumption] = useState("");
+  const [vConsumptionUnit, setVConsumptionUnit] = useState("mpg");
+  const [vTankCapacity, setVTankCapacity] = useState("");
+  const [vFuelCostPerUnit, setVFuelCostPerUnit] = useState("");
+  const [vFuelCostCurrency, setVFuelCostCurrency] = useState("GBP");
   const [vSaving, setVSaving] = useState(false);
 
   // Auth gate
@@ -131,6 +144,12 @@ export default function ProfilePage() {
     setVYear("");
     setVPicture(null);
     setVDefault(false);
+    setVFuelType("petrol");
+    setVConsumption("");
+    setVConsumptionUnit("mpg");
+    setVTankCapacity("");
+    setVFuelCostPerUnit("");
+    setVFuelCostCurrency("GBP");
     setShowAddForm(false);
     setEditingVehicle(null);
   };
@@ -163,6 +182,12 @@ export default function ProfilePage() {
         year: vYear ? parseInt(vYear) : null,
         picture_base64: vPicture,
         is_default: vDefault,
+        fuel_type: vFuelType,
+        consumption: vConsumption ? parseFloat(vConsumption) : null,
+        consumption_unit: vConsumptionUnit,
+        tank_capacity: vTankCapacity ? parseFloat(vTankCapacity) : null,
+        fuel_cost_per_unit: vFuelCostPerUnit ? parseFloat(vFuelCostPerUnit) : null,
+        fuel_cost_currency: vFuelCostCurrency,
       };
 
       if (editingVehicle) {
@@ -198,41 +223,47 @@ export default function ProfilePage() {
     setVYear(v.year?.toString() || "");
     setVPicture(v.picture_base64);
     setVDefault(v.is_default);
+    setVFuelType(v.fuel_type || "petrol");
+    setVConsumption(v.consumption?.toString() || "");
+    setVConsumptionUnit(v.consumption_unit || "mpg");
+    setVTankCapacity(v.tank_capacity?.toString() || "");
+    setVFuelCostPerUnit(v.fuel_cost_per_unit?.toString() || "");
+    setVFuelCostCurrency(v.fuel_cost_currency || "GBP");
     setShowAddForm(true);
   };
 
   if (authLoading || !user) {
     return (
-      <div className="flex items-center justify-center h-screen bg-zinc-950">
-        <div className="text-zinc-500 text-sm">Loading...</div>
+      <div className="flex items-center justify-center h-screen bg-page">
+        <div className="text-muted text-sm">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+    <div className="min-h-screen bg-page text-primary">
       <TopNav />
 
       <div className="max-w-2xl mx-auto p-6 flex flex-col gap-8">
         {/* ===== Profile ===== */}
-        <section className="bg-zinc-900 border border-zinc-800 rounded-lg p-5">
-          <h2 className="text-base font-semibold text-zinc-200 mb-4">Profile</h2>
+        <section className="bg-surface border border-border rounded-lg p-5">
+          <h2 className="text-base font-semibold text-secondary mb-4">Profile</h2>
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-zinc-400">Name</label>
+              <label className="text-xs text-muted">Name</label>
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-blue-600"
+                className="bg-surface-alt border border-border rounded-md px-3 py-2 text-sm text-primary focus:outline-none focus:border-border-focus"
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-zinc-400">Email</label>
+              <label className="text-xs text-muted">Email</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-blue-600"
+                className="bg-surface-alt border border-border rounded-md px-3 py-2 text-sm text-primary focus:outline-none focus:border-border-focus"
               />
             </div>
             {profileMsg && (
@@ -243,37 +274,40 @@ export default function ProfilePage() {
             <button
               onClick={handleProfileSave}
               disabled={profileSaving}
-              className="bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white text-sm font-medium py-2 rounded-md transition-colors w-fit px-4"
+              className="bg-blue-600 hover:bg-blue-500 disabled:bg-surface-hover text-white text-sm font-medium py-2 rounded-md transition-colors w-fit px-4"
             >
               {profileSaving ? "Saving..." : "Save Changes"}
             </button>
           </div>
         </section>
 
+        {/* ===== Preferences ===== */}
+        <PreferencesSection />
+
         {/* ===== Change Password ===== */}
-        <section className="bg-zinc-900 border border-zinc-800 rounded-lg p-5">
-          <h2 className="text-base font-semibold text-zinc-200 mb-4">Change Password</h2>
+        <section className="bg-surface border border-border rounded-lg p-5">
+          <h2 className="text-base font-semibold text-secondary mb-4">Change Password</h2>
           <div className="flex flex-col gap-3">
             <input
               type="password"
               placeholder="Current password"
               value={currentPw}
               onChange={(e) => setCurrentPw(e.target.value)}
-              className="bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-blue-600"
+              className="bg-surface-alt border border-border rounded-md px-3 py-2 text-sm text-primary placeholder:text-muted focus:outline-none focus:border-border-focus"
             />
             <input
               type="password"
               placeholder="New password (min 8 chars)"
               value={newPw}
               onChange={(e) => setNewPw(e.target.value)}
-              className="bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-blue-600"
+              className="bg-surface-alt border border-border rounded-md px-3 py-2 text-sm text-primary placeholder:text-muted focus:outline-none focus:border-border-focus"
             />
             <input
               type="password"
               placeholder="Confirm new password"
               value={confirmPw}
               onChange={(e) => setConfirmPw(e.target.value)}
-              className="bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-blue-600"
+              className="bg-surface-alt border border-border rounded-md px-3 py-2 text-sm text-primary placeholder:text-muted focus:outline-none focus:border-border-focus"
             />
             {pwMsg && (
               <p className={`text-xs ${pwMsg.includes("changed") ? "text-green-400" : "text-red-400"}`}>
@@ -283,7 +317,7 @@ export default function ProfilePage() {
             <button
               onClick={handlePasswordChange}
               disabled={pwSaving || !currentPw || !newPw}
-              className="bg-zinc-700 hover:bg-zinc-600 disabled:bg-zinc-800 disabled:text-zinc-600 text-zinc-200 text-sm font-medium py-2 rounded-md transition-colors w-fit px-4"
+              className="bg-surface-hover hover:bg-surface-alt disabled:bg-surface-alt disabled:text-muted text-secondary text-sm font-medium py-2 rounded-md transition-colors w-fit px-4"
             >
               {pwSaving ? "Changing..." : "Change Password"}
             </button>
@@ -291,9 +325,9 @@ export default function ProfilePage() {
         </section>
 
         {/* ===== Vehicles ===== */}
-        <section className="bg-zinc-900 border border-zinc-800 rounded-lg p-5">
+        <section className="bg-surface border border-border rounded-lg p-5">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-semibold text-zinc-200">
+            <h2 className="text-base font-semibold text-secondary">
               My Vehicles ({vehicles.length})
             </h2>
             {!showAddForm && (
@@ -308,14 +342,14 @@ export default function ProfilePage() {
 
           {/* Vehicle form (add/edit) */}
           {showAddForm && (
-            <div className="bg-zinc-800 border border-zinc-700 rounded-lg p-4 mb-4 flex flex-col gap-3">
+            <div className="bg-surface-alt border border-border rounded-lg p-4 mb-4 flex flex-col gap-3">
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs text-zinc-400">Type</label>
+                  <label className="text-xs text-muted">Type</label>
                   <select
                     value={vType}
                     onChange={(e) => setVType(e.target.value)}
-                    className="bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-blue-600"
+                    className="bg-surface border border-border rounded-md px-3 py-2 text-sm text-primary focus:outline-none focus:border-border-focus"
                   >
                     {VEHICLE_TYPES.map((t) => (
                       <option key={t} value={t}>{t}</option>
@@ -323,57 +357,130 @@ export default function ProfilePage() {
                   </select>
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs text-zinc-400">Year</label>
+                  <label className="text-xs text-muted">Year</label>
                   <input
                     type="number"
                     value={vYear}
                     onChange={(e) => setVYear(e.target.value)}
                     placeholder="2024"
-                    className="bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-blue-600"
+                    className="bg-surface border border-border rounded-md px-3 py-2 text-sm text-primary placeholder:text-muted focus:outline-none focus:border-border-focus"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs text-zinc-400">Brand</label>
+                  <label className="text-xs text-muted">Brand</label>
                   <input
                     value={vBrand}
                     onChange={(e) => setVBrand(e.target.value)}
                     placeholder="Honda, BMW, Ducati..."
-                    className="bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-blue-600"
+                    className="bg-surface border border-border rounded-md px-3 py-2 text-sm text-primary placeholder:text-muted focus:outline-none focus:border-border-focus"
                   />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs text-zinc-400">Model</label>
+                  <label className="text-xs text-muted">Model</label>
                   <input
                     value={vModel}
                     onChange={(e) => setVModel(e.target.value)}
                     placeholder="CB500X, R1250GS..."
-                    className="bg-zinc-900 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-blue-600"
+                    className="bg-surface border border-border rounded-md px-3 py-2 text-sm text-primary placeholder:text-muted focus:outline-none focus:border-border-focus"
                   />
+                </div>
+              </div>
+
+              {/* Fuel fields */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-muted">Fuel Type</label>
+                  <select
+                    value={vFuelType}
+                    onChange={(e) => setVFuelType(e.target.value)}
+                    className="bg-surface border border-border rounded-md px-3 py-2 text-sm text-primary focus:outline-none focus:border-border-focus"
+                  >
+                    <option value="petrol">Petrol</option>
+                    <option value="diesel">Diesel</option>
+                    <option value="ev">EV</option>
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-muted">Consumption</label>
+                  <div className="flex gap-1.5">
+                    <input
+                      type="number"
+                      value={vConsumption}
+                      onChange={(e) => setVConsumption(e.target.value)}
+                      placeholder={vFuelType === "ev" ? "kWh" : "e.g. 55"}
+                      className="flex-1 bg-surface border border-border rounded-md px-3 py-2 text-sm text-primary placeholder:text-muted focus:outline-none focus:border-border-focus"
+                    />
+                    <select
+                      value={vConsumptionUnit}
+                      onChange={(e) => setVConsumptionUnit(e.target.value)}
+                      className="bg-surface border border-border rounded-md px-2 py-2 text-xs text-primary focus:outline-none focus:border-border-focus"
+                    >
+                      <option value="mpg">MPG</option>
+                      <option value="l100km">L/100km</option>
+                      <option value="kwhper100km">kWh/100km</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-muted">
+                    Tank Capacity ({vFuelType === "ev" ? "kWh" : "litres"})
+                  </label>
+                  <input
+                    type="number"
+                    value={vTankCapacity}
+                    onChange={(e) => setVTankCapacity(e.target.value)}
+                    placeholder={vFuelType === "ev" ? "e.g. 75" : "e.g. 20"}
+                    className="bg-surface border border-border rounded-md px-3 py-2 text-sm text-primary placeholder:text-muted focus:outline-none focus:border-border-focus"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs text-muted">
+                    Fuel Cost ({vFuelType === "ev" ? "per kWh" : "per litre"})
+                  </label>
+                  <div className="flex gap-1.5">
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={vFuelCostPerUnit}
+                      onChange={(e) => setVFuelCostPerUnit(e.target.value)}
+                      placeholder="e.g. 1.45"
+                      className="flex-1 bg-surface border border-border rounded-md px-3 py-2 text-sm text-primary placeholder:text-muted focus:outline-none focus:border-border-focus"
+                    />
+                    <select
+                      value={vFuelCostCurrency}
+                      onChange={(e) => setVFuelCostCurrency(e.target.value)}
+                      className="bg-surface border border-border rounded-md px-2 py-2 text-xs text-primary focus:outline-none focus:border-border-focus"
+                    >
+                      <option value="GBP">£ GBP</option>
+                      <option value="EUR">€ EUR</option>
+                      <option value="USD">$ USD</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
               {/* Picture upload */}
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-zinc-400">Picture (optional, max 1.5MB)</label>
+                <label className="text-xs text-muted">Picture (optional, max 1.5MB)</label>
                 <div className="flex items-center gap-3">
                   <input
                     type="file"
                     accept="image/*"
                     onChange={handleImageUpload}
-                    className="text-xs text-zinc-400 file:mr-2 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:bg-zinc-700 file:text-zinc-300 hover:file:bg-zinc-600"
+                    className="text-xs text-muted file:mr-2 file:py-1 file:px-3 file:rounded-md file:border-0 file:text-xs file:bg-surface-hover file:text-secondary hover:file:bg-surface-alt"
                   />
                   {vPicture && (
                     <img
                       src={`data:image/jpeg;base64,${vPicture}`}
                       alt="Preview"
-                      className="w-16 h-16 rounded-md object-cover border border-zinc-700"
+                      className="w-16 h-16 rounded-md object-cover border border-border"
                     />
                   )}
                 </div>
               </div>
 
               {/* Default checkbox */}
-              <label className="flex items-center gap-2 text-xs text-zinc-400">
+              <label className="flex items-center gap-2 text-xs text-muted">
                 <input
                   type="checkbox"
                   checked={vDefault}
@@ -387,13 +494,13 @@ export default function ProfilePage() {
                 <button
                   onClick={handleVehicleSave}
                   disabled={vSaving || !vBrand.trim() || !vModel.trim()}
-                  className="bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white text-xs font-medium px-4 py-2 rounded-md transition-colors"
+                  className="bg-blue-600 hover:bg-blue-500 disabled:bg-surface-hover text-white text-xs font-medium px-4 py-2 rounded-md transition-colors"
                 >
                   {vSaving ? "Saving..." : editingVehicle ? "Update" : "Add Vehicle"}
                 </button>
                 <button
                   onClick={resetVehicleForm}
-                  className="text-xs text-zinc-400 hover:text-zinc-200"
+                  className="text-xs text-muted hover:text-secondary"
                 >
                   Cancel
                 </button>
@@ -403,18 +510,18 @@ export default function ProfilePage() {
 
           {/* Vehicle list */}
           {vehiclesLoading ? (
-            <p className="text-xs text-zinc-500">Loading...</p>
+            <p className="text-xs text-muted">Loading...</p>
           ) : vehicles.length === 0 ? (
-            <p className="text-xs text-zinc-500">No vehicles added yet</p>
+            <p className="text-xs text-muted">No vehicles added yet</p>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {vehicles.map((v) => (
                 <div
                   key={v.id}
-                  className="bg-zinc-800 border border-zinc-700 rounded-lg p-3 flex gap-3"
+                  className="bg-surface-alt border border-border rounded-lg p-3 flex gap-3"
                 >
                   {/* Image */}
-                  <div className="w-20 h-20 flex-shrink-0 rounded-md bg-zinc-900 overflow-hidden flex items-center justify-center">
+                  <div className="w-20 h-20 flex-shrink-0 rounded-md bg-surface overflow-hidden flex items-center justify-center">
                     {v.picture_base64 ? (
                       <img
                         src={`data:image/jpeg;base64,${v.picture_base64}`}
@@ -432,7 +539,7 @@ export default function ProfilePage() {
                   <div className="flex-1 flex flex-col justify-between min-w-0">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium text-zinc-200 truncate">
+                        <span className="text-sm font-medium text-secondary truncate">
                           {v.brand} {v.model}
                         </span>
                         {v.is_default && (
@@ -441,14 +548,24 @@ export default function ProfilePage() {
                           </span>
                         )}
                       </div>
-                      <span className="text-xs text-zinc-500">
+                      <span className="text-xs text-muted">
                         {v.type}{v.year ? ` • ${v.year}` : ""}
                       </span>
+                      {v.fuel_type && v.consumption && (
+                        <span className="text-[10px] text-muted">
+                          {v.fuel_type === "ev" ? "⚡" : "⛽"}{" "}
+                          {v.fuel_type.charAt(0).toUpperCase() + v.fuel_type.slice(1)}
+                          {" · "}
+                          {v.consumption} {v.consumption_unit === "mpg" ? "MPG" : v.consumption_unit === "l100km" ? "L/100km" : "kWh/100km"}
+                          {v.tank_capacity ? ` · ${v.tank_capacity}${v.fuel_type === "ev" ? "kWh" : "L"} tank` : ""}
+                          {v.fuel_cost_per_unit ? ` · ${v.fuel_cost_currency === "GBP" ? "£" : v.fuel_cost_currency === "EUR" ? "€" : "$"}${v.fuel_cost_per_unit}/${v.fuel_type === "ev" ? "kWh" : "L"}` : ""}
+                        </span>
+                      )}
                     </div>
                     <div className="flex gap-2 mt-1">
                       <button
                         onClick={() => startEditVehicle(v)}
-                        className="text-[10px] text-zinc-400 hover:text-zinc-200"
+                        className="text-[10px] text-muted hover:text-secondary"
                       >
                         Edit
                       </button>
@@ -467,5 +584,168 @@ export default function ProfilePage() {
         </section>
       </div>
     </div>
+  );
+}
+
+// ---------- Preferences Section ----------
+
+const POI_CATEGORY_OPTIONS = [
+  { id: "biker_spot", label: "🏍️ Biker Spots" },
+  { id: "fuel", label: "⛽ Fuel" },
+  { id: "hotel", label: "🏨 Hotels" },
+  { id: "restaurant", label: "🍽️ Restaurants" },
+  { id: "cafe", label: "☕ Cafes" },
+  { id: "pub", label: "🍺 Pubs" },
+  { id: "campsite", label: "⛺ Campsites" },
+  { id: "viewpoint", label: "👁️ Viewpoints" },
+  { id: "castle", label: "🏰 Castles" },
+  { id: "museum", label: "🏛️ Museums" },
+  { id: "attraction", label: "📍 Attractions" },
+];
+
+function PreferencesSection() {
+  const { units, setUnits } = useUnits();
+  const { user, refreshUser } = useAuthContext();
+  const [saving, setSaving] = useState(false);
+  const prefs = user?.preferences || {};
+
+  // Daily miles per route mode
+  const [scenicMiles, setScenicMiles] = useState(String(prefs.daily_miles_scenic || 150));
+  const [balancedMiles, setBalancedMiles] = useState(String(prefs.daily_miles_balanced || 200));
+  const [fastMiles, setFastMiles] = useState(String(prefs.daily_miles_fast || 250));
+
+  // Default POI categories
+  const [selectedPOIs, setSelectedPOIs] = useState<Set<string>>(
+    new Set(prefs.default_poi_categories || ["fuel", "biker_spot"])
+  );
+
+  // Sync from user prefs on load
+  useEffect(() => {
+    if (user?.preferences) {
+      const p = user.preferences;
+      if (p.daily_miles_scenic) setScenicMiles(String(p.daily_miles_scenic));
+      if (p.daily_miles_balanced) setBalancedMiles(String(p.daily_miles_balanced));
+      if (p.daily_miles_fast) setFastMiles(String(p.daily_miles_fast));
+      if (p.default_poi_categories) setSelectedPOIs(new Set(p.default_poi_categories));
+    }
+  }, [user?.preferences]);
+
+  const handleUnitChange = async (u: UnitSystem) => {
+    setUnits(u);
+    setSaving(true);
+    try {
+      await updatePreferences({ units: u });
+      await refreshUser();
+    } catch { setUnits(units); }
+    finally { setSaving(false); }
+  };
+
+  const handleSaveDailyMiles = async () => {
+    setSaving(true);
+    try {
+      await updatePreferences({
+        daily_miles_scenic: parseInt(scenicMiles) || 150,
+        daily_miles_balanced: parseInt(balancedMiles) || 200,
+        daily_miles_fast: parseInt(fastMiles) || 250,
+      });
+      await refreshUser();
+    } catch { /* silent */ }
+    finally { setSaving(false); }
+  };
+
+  const handleTogglePOI = async (catId: string) => {
+    const next = new Set(selectedPOIs);
+    if (next.has(catId)) next.delete(catId);
+    else next.add(catId);
+    setSelectedPOIs(next);
+    setSaving(true);
+    try {
+      await updatePreferences({ default_poi_categories: Array.from(next) });
+      await refreshUser();
+    } catch { /* silent */ }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <section className="bg-surface border border-border rounded-lg p-5">
+      <h2 className="text-base font-semibold text-secondary mb-4">Preferences</h2>
+      <div className="flex flex-col gap-5">
+        {/* Distance units */}
+        <div className="flex flex-col gap-2">
+          <label className="text-xs text-muted font-medium">Distance units</label>
+          <div className="flex gap-2">
+            {(["miles", "km"] as UnitSystem[]).map((u) => (
+              <button
+                key={u}
+                onClick={() => handleUnitChange(u)}
+                disabled={saving}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  units === u
+                    ? "bg-blue-600 text-white"
+                    : "bg-surface-alt text-muted hover:bg-surface-hover hover:text-secondary"
+                } disabled:opacity-50`}
+              >
+                {u === "miles" ? "Miles (mi)" : "Kilometres (km)"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Daily miles per route mode */}
+        <div className="flex flex-col gap-2">
+          <label className="text-xs text-muted font-medium">Max miles per day (for auto-split)</label>
+          <p className="text-[10px] text-zinc-600">Sets the daily distance target when splitting a multi-day trip.</p>
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: "🏔️ Scenic", value: scenicMiles, set: setScenicMiles },
+              { label: "⚖️ Balanced", value: balancedMiles, set: setBalancedMiles },
+              { label: "⚡ Fast", value: fastMiles, set: setFastMiles },
+            ].map(({ label, value, set }) => (
+              <div key={label} className="flex flex-col gap-1">
+                <span className="text-[10px] text-muted">{label}</span>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    value={value}
+                    onChange={(e) => set(e.target.value)}
+                    className="w-full bg-surface-alt border border-border rounded-md px-2 py-1.5 text-sm text-primary focus:outline-none focus:border-border-focus"
+                  />
+                  <span className="text-[10px] text-zinc-600">mi</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={handleSaveDailyMiles}
+            disabled={saving}
+            className="self-start text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-md transition-colors disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save daily targets"}
+          </button>
+        </div>
+
+        {/* Default POI categories */}
+        <div className="flex flex-col gap-2">
+          <label className="text-xs text-muted font-medium">Default POI categories on map</label>
+          <p className="text-[10px] text-zinc-600">These categories are automatically shown when you plan a route.</p>
+          <div className="flex flex-wrap gap-1.5">
+            {POI_CATEGORY_OPTIONS.map(({ id, label }) => (
+              <button
+                key={id}
+                onClick={() => handleTogglePOI(id)}
+                disabled={saving}
+                className={`text-xs px-2.5 py-1 rounded-md transition-colors border ${
+                  selectedPOIs.has(id)
+                    ? "bg-amber-900/50 border-amber-600/60 text-amber-300"
+                    : "bg-surface-alt border-border text-muted hover:text-secondary"
+                } disabled:opacity-50`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }

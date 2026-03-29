@@ -142,14 +142,14 @@ export default function AdminPage() {
 
   if (authLoading || !user?.is_admin) {
     return (
-      <div className="flex items-center justify-center h-screen bg-zinc-950">
-        <div className="text-zinc-500 text-sm">Loading...</div>
+      <div className="flex items-center justify-center h-screen bg-page">
+        <div className="text-muted text-sm">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+    <div className="min-h-screen bg-page text-primary">
       <TopNav />
 
       <div className="max-w-5xl mx-auto p-6 flex flex-col gap-8">
@@ -169,7 +169,7 @@ export default function AdminPage() {
         {/* ===== Invite Codes ===== */}
         <section>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-semibold text-zinc-200">
+            <h2 className="text-base font-semibold text-secondary">
               Invite Codes
             </h2>
             <button
@@ -181,14 +181,14 @@ export default function AdminPage() {
           </div>
 
           {loadingCodes ? (
-            <p className="text-xs text-zinc-500">Loading...</p>
+            <p className="text-xs text-muted">Loading...</p>
           ) : codes.length === 0 ? (
-            <p className="text-xs text-zinc-500">No invite codes yet</p>
+            <p className="text-xs text-muted">No invite codes yet</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="border-b border-zinc-800 text-zinc-500 text-left">
+                  <tr className="border-b border-border text-muted text-left">
                     <th className="py-2 pr-4">Code</th>
                     <th className="py-2 pr-4">Status</th>
                     <th className="py-2 pr-4">Created By</th>
@@ -201,10 +201,10 @@ export default function AdminPage() {
                   {codes.map((c) => (
                     <tr
                       key={c.id}
-                      className="border-b border-zinc-800/50 hover:bg-zinc-900/50"
+                      className="border-b border-border/50 hover:bg-surface/50"
                     >
                       <td className="py-2 pr-4">
-                        <span className="font-mono text-zinc-200 bg-zinc-800 px-2 py-0.5 rounded">
+                        <span className="font-mono text-secondary bg-surface-alt px-2 py-0.5 rounded">
                           {c.code}
                         </span>
                       </td>
@@ -214,20 +214,20 @@ export default function AdminPage() {
                             c.status === "available"
                               ? "bg-green-900/50 text-green-400"
                               : c.status === "used"
-                                ? "bg-zinc-800 text-zinc-500"
+                                ? "bg-surface-alt text-muted"
                                 : "bg-red-900/50 text-red-400"
                           }`}
                         >
                           {c.status}
                         </span>
                       </td>
-                      <td className="py-2 pr-4 text-zinc-400">
+                      <td className="py-2 pr-4 text-muted">
                         {c.created_by_name}
                       </td>
-                      <td className="py-2 pr-4 text-zinc-400">
+                      <td className="py-2 pr-4 text-muted">
                         {c.used_by_name || "—"}
                       </td>
-                      <td className="py-2 pr-4 text-zinc-500">
+                      <td className="py-2 pr-4 text-muted">
                         {c.created_at ? formatDate(c.created_at) : "—"}
                       </td>
                       <td className="py-2 pr-4">
@@ -235,7 +235,7 @@ export default function AdminPage() {
                           <div className="flex gap-2">
                             <button
                               onClick={() => copyCode(c.code)}
-                              className="text-zinc-400 hover:text-zinc-200 transition-colors"
+                              className="text-muted hover:text-secondary transition-colors"
                               title="Copy code"
                             >
                               {copiedCode === c.code ? "✓" : "📋"}
@@ -270,26 +270,26 @@ export default function AdminPage() {
         {/* ===== Users ===== */}
         <section>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-base font-semibold text-zinc-200">
+            <h2 className="text-base font-semibold text-secondary">
               Users ({users.length})
             </h2>
             <button
               onClick={refreshUsers}
-              className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+              className="text-xs text-muted hover:text-secondary transition-colors"
             >
               Refresh
             </button>
           </div>
 
           {loadingUsers ? (
-            <p className="text-xs text-zinc-500">Loading...</p>
+            <p className="text-xs text-muted">Loading...</p>
           ) : users.length === 0 ? (
-            <p className="text-xs text-zinc-500">No users yet</p>
+            <p className="text-xs text-muted">No users yet</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
-                  <tr className="border-b border-zinc-800 text-zinc-500 text-left">
+                  <tr className="border-b border-border text-muted text-left">
                     <th className="py-2 pr-4">Name</th>
                     <th className="py-2 pr-4">Email</th>
                     <th className="py-2 pr-4">Status</th>
@@ -302,10 +302,10 @@ export default function AdminPage() {
                   {users.map((u) => (
                     <tr
                       key={u.id}
-                      className="border-b border-zinc-800/50 hover:bg-zinc-900/50"
+                      className="border-b border-border/50 hover:bg-surface/50"
                     >
-                      <td className="py-2 pr-4 text-zinc-200">{u.name}</td>
-                      <td className="py-2 pr-4 text-zinc-400">{u.email}</td>
+                      <td className="py-2 pr-4 text-secondary">{u.name}</td>
+                      <td className="py-2 pr-4 text-muted">{u.email}</td>
                       <td className="py-2 pr-4">
                         <span
                           className={`px-2 py-0.5 rounded text-[10px] font-medium ${
@@ -324,7 +324,7 @@ export default function AdminPage() {
                           </span>
                         )}
                       </td>
-                      <td className="py-2 pr-4 text-zinc-500">
+                      <td className="py-2 pr-4 text-muted">
                         {u.created_at ? formatDate(u.created_at) : "—"}
                       </td>
                       <td className="py-2 pr-4">
@@ -334,7 +334,7 @@ export default function AdminPage() {
                               onClick={() =>
                                 handleBlock(u.id, !u.is_blocked)
                               }
-                              className="text-zinc-400 hover:text-zinc-200 transition-colors"
+                              className="text-muted hover:text-secondary transition-colors"
                               title={
                                 u.is_blocked ? "Unblock" : "Block"
                               }
@@ -345,7 +345,7 @@ export default function AdminPage() {
                               onClick={() =>
                                 handleToggleAdmin(u.id, !u.is_admin)
                               }
-                              className="text-zinc-400 hover:text-zinc-200 transition-colors"
+                              className="text-muted hover:text-secondary transition-colors"
                               title={
                                 u.is_admin ? "Demote" : "Promote"
                               }
@@ -362,7 +362,7 @@ export default function AdminPage() {
                                 </button>
                                 <button
                                   onClick={() => setConfirmDelete(null)}
-                                  className="text-zinc-500"
+                                  className="text-muted"
                                 >
                                   Cancel
                                 </button>

@@ -10,6 +10,12 @@ class VehicleCreate(BaseModel):
     year: int | None = None
     picture_base64: str | None = None
     is_default: bool = False
+    fuel_type: str = "petrol"                  # petrol, diesel, ev
+    consumption: float | None = None           # raw value in consumption_unit
+    consumption_unit: str = "mpg"              # mpg, l100km, kwhper100km
+    tank_capacity: float | None = None         # litres or kWh
+    fuel_cost_per_unit: float | None = None    # £/litre or £/kWh
+    fuel_cost_currency: str = "GBP"            # GBP, EUR, USD
 
     @field_validator("picture_base64")
     @classmethod
@@ -26,6 +32,12 @@ class VehicleUpdate(BaseModel):
     year: int | None = None
     picture_base64: str | None = None
     is_default: bool | None = None
+    fuel_type: str | None = None
+    consumption: float | None = None
+    consumption_unit: str | None = None
+    tank_capacity: float | None = None
+    fuel_cost_per_unit: float | None = None
+    fuel_cost_currency: str | None = None
 
     @field_validator("picture_base64")
     @classmethod
@@ -43,4 +55,10 @@ class VehicleResponse(BaseModel):
     year: int | None
     picture_base64: str | None
     is_default: bool
+    fuel_type: str = "petrol"
+    consumption: float | None = None
+    consumption_unit: str = "mpg"
+    tank_capacity: float | None = None
+    fuel_cost_per_unit: float | None = None
+    fuel_cost_currency: str = "GBP"
     created_at: str

@@ -1,28 +1,17 @@
 "use client";
 
+import { useMemo } from "react";
 import type { RouteResult, RouteManeuver } from "@/lib/types";
+import type { DayOverlayWithStats } from "@/lib/types";
+import { useUnits } from "@/contexts/UnitContext";
+import { formatTime } from "@/lib/formatters";
+import { estimateFuel, formatFuelEstimate, type VehicleFuelData } from "@/lib/fuelCalc";
 
 interface RouteStatsProps {
   route: RouteResult;
-}
-
-function formatDistance(meters: number): string {
-  if (meters < 1000) return `${Math.round(meters)}m`;
-  const km = meters / 1000;
-  return km >= 10 ? `${Math.round(km)} km` : `${km.toFixed(1)} km`;
-}
-
-function formatTime(seconds: number): string {
-  const hours = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  if (hours > 0) return `${hours}h ${mins}m`;
-  return `${mins} min`;
-}
-
-function formatManeuverDist(km: number): string {
-  if (km < 0.1) return "";
-  if (km < 1) return `${(km * 1000).toFixed(0)}m`;
-  return km >= 10 ? `${Math.round(km)} km` : `${km.toFixed(1)} km`;
+  selectedDay?: number | null;
+  dayStats?: DayOverlayWithStats[];
+  defaultVehicle?: VehicleFuelData | null;
 }
 
 // Valhalla maneuver type → icon
@@ -88,27 +77,74 @@ function routeSummary(maneuvers: RouteManeuver[]) {
     .sort((a, b) => b[1] - a[1]);
 }
 
-export function RouteStats({ route }: RouteStatsProps) {
-  const scorePercent =
-    route.moto_score !== null ? Math.round(route.moto_score * 100) : null;
+export function RouteStats({ route, selectedDay, dayStats, defaultVehicle }: RouteStatsProps) {
+  const { formatDist, formatShortDist } = useUnits();
+  // Compute day view: slice legs + maneuvers for the selected day
+  const dayView = useMemo(() => {
+    if (selectedDay == null || !dayStats?.length) return null;
+    const day = dayStats.find((d) => d.day === selectedDay);
+    if (!day) return null;
 
-  const summary = routeSummary(route.maneuvers);
+    // Day's legs: legs[start_waypoint_idx .. end_waypoint_idx - 1]
+    const startLeg = day.start_waypoint_idx;
+    const endLeg = Math.min(day.end_waypoint_idx, route.legs.length);
+    const dayLegs = route.legs.slice(startLeg, endLeg);
+
+    if (dayLegs.length === 0) return null;
+
+    // Sum distance and time from legs
+    let distance = 0;
+    let time = 0;
+    for (const leg of dayLegs) {
+      distance += leg.distance_m;
+      time += leg.time_s;
+    }
+
+    // Distance before this day starts (sum of preceding legs)
+    let distBefore = 0;
+    for (let i = 0; i < startLeg && i < route.legs.length; i++) {
+      distBefore += route.legs[i].distance_m;
+    }
+    const distAfter = distBefore + distance;
+
+    // Filter maneuvers by cumulative distance — more reliable than shape indices
+    let cumDist = 0;
+    const maneuvers: RouteManeuver[] = [];
+    for (const m of route.maneuvers) {
+      const mDistM = m.length * 1000; // km → m
+      if (cumDist + mDistM > distBefore && cumDist < distAfter) {
+        maneuvers.push(m);
+      }
+      cumDist += mDistM;
+    }
+
+    return { day, distance, time, motoScore: day.moto_score, maneuvers };
+  }, [selectedDay, dayStats, route.legs, route.maneuvers]);
+
+  const visibleManeuvers = dayView ? dayView.maneuvers : route.maneuvers;
+  const distance = dayView ? dayView.distance : route.distance_m;
+  const time = dayView ? dayView.time : route.time_s;
+  const motoScore = dayView ? dayView.motoScore : route.moto_score;
+
+  const scorePercent = motoScore !== null && motoScore !== undefined ? Math.round(motoScore * 100) : null;
+
+  const summary = routeSummary(visibleManeuvers);
 
   return (
-    <div className="rounded-md bg-zinc-800 p-3 flex flex-col gap-3">
+    <div className="rounded-md bg-surface-alt p-3 flex flex-col gap-3">
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-2 text-center">
         <div>
-          <div className="text-lg font-semibold text-zinc-100">
-            {formatDistance(route.distance_m)}
+          <div className="text-lg font-semibold text-primary">
+            {formatDist(distance)}
           </div>
-          <div className="text-[10px] text-zinc-500 uppercase">Distance</div>
+          <div className="text-[10px] text-muted uppercase">Distance</div>
         </div>
         <div>
-          <div className="text-lg font-semibold text-zinc-100">
-            {formatTime(route.time_s)}
+          <div className="text-lg font-semibold text-primary">
+            {formatTime(time)}
           </div>
-          <div className="text-[10px] text-zinc-500 uppercase">Est. Time</div>
+          <div className="text-[10px] text-muted uppercase">Est. Time</div>
         </div>
         <div>
           {scorePercent !== null ? (
@@ -124,31 +160,43 @@ export function RouteStats({ route }: RouteStatsProps) {
               >
                 {scorePercent}
               </div>
-              <div className="text-[10px] text-zinc-500 uppercase">
+              <div className="text-[10px] text-muted uppercase">
                 Moto Score
               </div>
             </>
           ) : (
             <>
-              <div className="text-lg text-zinc-500">--</div>
-              <div className="text-[10px] text-zinc-500 uppercase">Score</div>
+              <div className="text-lg text-muted">--</div>
+              <div className="text-[10px] text-muted uppercase">Score</div>
             </>
           )}
         </div>
       </div>
 
+      {/* Fuel estimate */}
+      {defaultVehicle && (() => {
+        const est = estimateFuel(distance, defaultVehicle);
+        if (!est) return null;
+        return (
+          <div className="flex items-center justify-center gap-2 text-xs text-muted border-t border-border/50 pt-2">
+            <span>⛽</span>
+            <span>{formatFuelEstimate(est)}</span>
+          </div>
+        );
+      })()}
+
       {/* Road summary badges */}
       {summary.length > 0 && (
         <div className="flex flex-col gap-1.5">
-          <span className="text-[10px] text-zinc-500 font-medium uppercase">
+          <span className="text-[10px] text-muted font-medium uppercase">
             Key roads
           </span>
           <div className="flex flex-wrap gap-1.5">
             {summary.map(([name, km]) => (
               <span key={name} className="inline-flex items-center gap-1">
                 {roadBadge(name)}
-                <span className="text-[10px] text-zinc-500">
-                  {km >= 10 ? `${Math.round(km)} km` : `${km.toFixed(1)} km`}
+                <span className="text-[10px] text-muted">
+                  {formatShortDist(km)}
                 </span>
               </span>
             ))}
@@ -156,26 +204,33 @@ export function RouteStats({ route }: RouteStatsProps) {
         </div>
       )}
 
+      {/* Day indicator */}
+      {dayView && (
+        <div className="text-[10px] text-blue-400 font-medium text-center -mt-1">
+          Showing Day {dayView.day.day}{dayView.day.name ? `: ${dayView.day.name}` : ""} · Select &quot;Full Trip&quot; for complete route
+        </div>
+      )}
+
       {/* Turn-by-turn directions */}
-      {route.maneuvers.length > 0 && (
+      {visibleManeuvers.length > 0 && (
         <details className="text-xs">
-          <summary className="cursor-pointer text-zinc-400 hover:text-zinc-200 transition-colors">
-            {route.maneuvers.length} directions
+          <summary className="cursor-pointer text-muted hover:text-secondary transition-colors">
+            {visibleManeuvers.length} directions{dayView ? ` (Day ${dayView.day.day})` : ""}
           </summary>
           <div className="mt-2 flex flex-col gap-0.5 max-h-64 overflow-y-auto">
-            {route.maneuvers.map((m, i) => {
-              const dist = formatManeuverDist(m.length);
+            {visibleManeuvers.map((m, i) => {
+              const dist = formatShortDist(m.length);
               const hasRoadNames = m.street_names.length > 0;
               return (
                 <div
                   key={i}
-                  className="flex items-start gap-2 py-1.5 border-b border-zinc-700/40 last:border-0"
+                  className="flex items-start gap-2 py-1.5 border-b border-border/40 last:border-0"
                 >
                   <span className="text-sm w-5 shrink-0 text-center leading-5">
                     {maneuverIcon(m.type)}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-zinc-300 leading-tight">
+                    <p className="text-secondary leading-tight">
                       {m.instruction}
                     </p>
                     {hasRoadNames && (
@@ -185,7 +240,7 @@ export function RouteStats({ route }: RouteStatsProps) {
                     )}
                   </div>
                   {dist && (
-                    <span className="text-[10px] text-zinc-500 font-mono shrink-0 pt-0.5">
+                    <span className="text-[10px] text-muted font-mono shrink-0 pt-0.5">
                       {dist}
                     </span>
                   )}

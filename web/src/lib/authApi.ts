@@ -47,11 +47,20 @@ export async function authFetch(
 
 // ---------- Auth API functions ----------
 
+export interface UserPreferences {
+  units?: "miles" | "km";
+  daily_miles_scenic?: number;     // max miles per day in scenic mode (default: 150)
+  daily_miles_balanced?: number;   // max miles per day in balanced mode (default: 200)
+  daily_miles_fast?: number;       // max miles per day in fast mode (default: 250)
+  default_poi_categories?: string[]; // POI categories selected by default (e.g., ["fuel", "biker_spot"])
+}
+
 export interface AuthUser {
   id: string;
   name: string;
   email: string;
   is_admin: boolean;
+  preferences?: UserPreferences;
 }
 
 export interface AuthResponse {
@@ -118,6 +127,19 @@ export async function updateProfile(data: {
     const err = await res.json().catch(() => ({ detail: "Update failed" }));
     throw new Error(err.detail || "Update failed");
   }
+}
+
+export async function updatePreferences(prefs: UserPreferences): Promise<UserPreferences> {
+  const res = await authFetch("/api/auth/preferences", {
+    method: "PATCH",
+    body: JSON.stringify(prefs),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Update failed" }));
+    throw new Error(err.detail || "Update failed");
+  }
+  const data = await res.json();
+  return data.preferences;
 }
 
 export async function changePassword(

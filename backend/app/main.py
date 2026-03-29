@@ -12,7 +12,9 @@ from app.api.auth import router as auth_router
 from app.api.admin import router as admin_router
 from app.api.vehicles import router as vehicles_router
 from app.api.groups import router as groups_router
+from app.api.ai_planner import router as ai_planner_router
 from app.services.valhalla_client import close_client
+from app.services.overpass_client import close_overpass_client
 
 # Configure logging so timing info shows up
 logging.basicConfig(level=logging.INFO, format="%(name)s | %(message)s")
@@ -21,8 +23,9 @@ logging.basicConfig(level=logging.INFO, format="%(name)s | %(message)s")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     yield
-    # Clean up httpx client on shutdown
+    # Clean up httpx clients on shutdown
     await close_client()
+    await close_overpass_client()
 
 
 app = FastAPI(
@@ -48,6 +51,7 @@ app.include_router(routes_router, prefix="/api")
 app.include_router(trips_router, prefix="/api")
 app.include_router(gpx_router, prefix="/api")
 app.include_router(trip_planner_router, prefix="/api")
+app.include_router(ai_planner_router, prefix="/api")
 
 
 @app.get("/health")

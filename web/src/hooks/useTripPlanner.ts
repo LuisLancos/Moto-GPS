@@ -1,13 +1,16 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import type {
   Waypoint,
+  RouteType,
   RouteResult,
   DayOverlay,
   DayOverlayWithStats,
+  DaySuggestion,
 } from "@/lib/types";
-import { autoSplitTrip } from "@/lib/api";
+import type { VehicleFuelData } from "@/lib/fuelCalc";
+import { autoSplitTrip, fetchDaySuggestions } from "@/lib/api";
 
 /**
  * Day planner hook — manages day overlays over a master route.
@@ -18,12 +21,15 @@ import { autoSplitTrip } from "@/lib/api";
 export function useTripPlanner(
   waypoints: Waypoint[],
   selectedRoute: RouteResult | null,
+  defaultVehicle?: VehicleFuelData | null,
+  addWaypoint?: (wp: Waypoint, atIndex: number) => void,
 ) {
   const [dayOverlays, setDayOverlays] = useState<DayOverlay[]>([]);
-  const [dailyTargetM, setDailyTargetM] = useState(400_000); // 400km
-  const [selectedDay, setSelectedDay] = useState<number | null>(null); // null = full trip
+  const [dailyTargetM, setDailyTargetM] = useState(400_000);
+  const [selectedDay, setSelectedDay] = useState<number | null>(null);
   const [isMultiDay, setIsMultiDay] = useState(false);
   const [splitting, setSplitting] = useState(false);
+  const [daySuggestions, setDaySuggestions] = useState<DaySuggestion[]>([]);
 
   // ---------- Compute per-day stats from overlays + route legs ----------
   const dayStats: DayOverlayWithStats[] = useMemo(() => {
@@ -71,13 +77,53 @@ export function useTripPlanner(
       const result = await autoSplitTrip(waypoints, legs, dailyTargetM);
       setDayOverlays(result.day_overlays);
       setIsMultiDay(true);
-      setSelectedDay(null); // show full trip view
+      setSelectedDay(null);
+
+      // Auto-insert overnight hotel waypoints at each day boundary
+      if (addWaypoint && selectedRoute.shape?.length) {
+        try {
+          const vehicle = defaultVehicle
+            ? { consumption: defaultVehicle.consumption, consumption_unit: defaultVehicle.consumption_unit, tank_capacity: defaultVehicle.tank_capacity }
+            : null;
+          const sugData = await fetchDaySuggestions(
+            waypoints,
+            result.day_overlays,
+            selectedRoute.shape,
+            legs,
+            vehicle,
+          );
+          const suggestions = sugData.suggestions || [];
+          setDaySuggestions(suggestions);
+
+          // Insert hotel waypoints at each overnight stop (in reverse order to preserve indices)
+          const hotelsToInsert: { wp: Waypoint; afterIdx: number }[] = [];
+          for (const sug of suggestions) {
+            if (sug.hotel && sug.day < result.day_overlays.length) {
+              const dayOv = result.day_overlays.find((d) => d.day === sug.day);
+              if (dayOv) {
+                hotelsToInsert.push({
+                  wp: { lat: sug.hotel.lat, lng: sug.hotel.lng, label: `🏨 ${sug.hotel.name}` },
+                  afterIdx: dayOv.end_waypoint_idx + 1,
+                });
+              }
+            }
+          }
+
+          // Insert in reverse order so indices don't shift
+          hotelsToInsert.sort((a, b) => b.afterIdx - a.afterIdx);
+          for (const h of hotelsToInsert) {
+            addWaypoint(h.wp, h.afterIdx);
+          }
+        } catch {
+          // Suggestions are optional — don't fail the split
+        }
+      }
     } catch (err) {
       console.error("Auto-split failed:", err);
     } finally {
       setSplitting(false);
     }
-  }, [waypoints, selectedRoute, dailyTargetM]);
+  }, [waypoints, selectedRoute, dailyTargetM, addWaypoint, defaultVehicle]);
 
   // ---------- Toggle a waypoint as overnight stop ----------
   const toggleOvernightStop = useCallback(
@@ -186,25 +232,75 @@ export function useTripPlanner(
     return indices;
   }, [dayOverlays, waypoints.length]);
 
-  // ---------- Adjust overlay indices when waypoints change ----------
+  // ---------- Adjust overlay indices when waypoints are added/removed ----------
+  const prevWpCountRef = useRef(waypoints.length);
+
   useEffect(() => {
     if (!dayOverlays.length) return;
 
-    // Validate: ensure last overlay's end matches waypoint count
-    const lastOverlay = dayOverlays[dayOverlays.length - 1];
-    if (lastOverlay && lastOverlay.end_waypoint_idx !== waypoints.length - 1) {
-      // Waypoints changed — adjust last overlay
-      setDayOverlays((prev) => {
-        const updated = [...prev];
-        updated[updated.length - 1] = {
-          ...updated[updated.length - 1],
-          end_waypoint_idx: waypoints.length - 1,
-        };
-        return updated;
-      });
-    }
+    const newCount = waypoints.length;
+    const prevCount = prevWpCountRef.current;
+    prevWpCountRef.current = newCount;
+
+    if (prevCount === newCount || newCount < 2) return;
+
+    // Simple strategy: keep the LAST overlay expanding/contracting.
+    // All other overlays keep their current size. This avoids complex
+    // "where was the insertion" logic and always produces valid overlays.
+    setDayOverlays((prev) => {
+      if (!prev.length) return prev;
+      const updated = [...prev];
+      // Just update the last overlay's end to match new waypoint count
+      updated[updated.length - 1] = {
+        ...updated[updated.length - 1],
+        end_waypoint_idx: newCount - 1,
+      };
+
+      // Validate: ensure every overlay has at least 2 waypoints (start != end)
+      for (let i = 0; i < updated.length; i++) {
+        if (updated[i].end_waypoint_idx <= updated[i].start_waypoint_idx) {
+          // This overlay is invalid — merge it into the previous one
+          if (i > 0) {
+            updated[i - 1] = {
+              ...updated[i - 1],
+              end_waypoint_idx: updated[i].end_waypoint_idx,
+            };
+            updated.splice(i, 1);
+            // Re-number days
+            for (let j = 0; j < updated.length; j++) {
+              updated[j] = { ...updated[j], day: j + 1 };
+            }
+            i--; // Recheck at same position
+          }
+        }
+      }
+
+      // Ensure contiguity
+      for (let i = 1; i < updated.length; i++) {
+        updated[i] = { ...updated[i], start_waypoint_idx: updated[i - 1].end_waypoint_idx };
+      }
+
+      return updated;
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [waypoints.length]); // exclude dayOverlays — effect sets it, would cause double-fire
+  }, [waypoints.length]);
+
+  // ---------- Per-day route type (sync/unsync) ----------
+  const setDayRouteType = useCallback(
+    (dayNum: number, type: RouteType | undefined) => {
+      setDayOverlays((prev) =>
+        prev.map((d) =>
+          d.day === dayNum ? { ...d, route_type: type } : d,
+        ),
+      );
+    },
+    [],
+  );
+
+  const hasPerDayRouteTypes = useMemo(
+    () => dayOverlays.some((d) => d.route_type != null),
+    [dayOverlays],
+  );
 
   // ---------- Load overlays from saved trip ----------
   const loadDayOverlays = useCallback(
@@ -217,10 +313,36 @@ export function useTripPlanner(
     [],
   );
 
+  // ---------- Auto-fetch overnight + fuel suggestions when days change ----------
+  const dayOverlayKey = dayOverlays.map((d) => `${d.day}:${d.start_waypoint_idx}-${d.end_waypoint_idx}`).join("|");
+
+  useEffect(() => {
+    if (!dayOverlays.length || !selectedRoute?.shape?.length || !selectedRoute?.legs?.length) {
+      setDaySuggestions([]);
+      return;
+    }
+
+    const vehicle = defaultVehicle
+      ? { consumption: defaultVehicle.consumption, consumption_unit: defaultVehicle.consumption_unit, tank_capacity: defaultVehicle.tank_capacity }
+      : null;
+
+    fetchDaySuggestions(
+      waypoints,
+      dayOverlays,
+      selectedRoute.shape,
+      selectedRoute.legs.map((l) => ({ distance_m: l.distance_m, time_s: l.time_s })),
+      vehicle,
+    )
+      .then((data) => setDaySuggestions(data.suggestions || []))
+      .catch(() => setDaySuggestions([]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dayOverlayKey, selectedRoute?.distance_m]);
+
   return {
     // State
     dayOverlays,
     dayStats,
+    daySuggestions,
     selectedDay,
     dailyTargetM,
     isMultiDay,
@@ -237,6 +359,8 @@ export function useTripPlanner(
     setIsMultiDay,
     getDayWaypoints,
     loadDayOverlays,
+    setDayRouteType,
+    hasPerDayRouteTypes,
   };
 }
 

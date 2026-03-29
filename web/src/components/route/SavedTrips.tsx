@@ -45,14 +45,14 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh, myGr
       <div className="flex items-center justify-between">
         <button
           onClick={() => setExpanded(!expanded)}
-          className="flex items-center gap-1.5 text-xs font-medium text-zinc-500 uppercase tracking-wider hover:text-zinc-300 transition-colors"
+          className="flex items-center gap-1.5 text-xs font-medium text-muted uppercase tracking-wider hover:text-secondary transition-colors"
         >
           <span className="text-[10px]">{expanded ? "▾" : "▸"}</span>
           Saved Trips ({trips.length})
         </button>
         <button
           onClick={onRefresh}
-          className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+          className="text-[10px] text-muted hover:text-secondary transition-colors"
           title="Refresh"
         >
           ↻
@@ -60,11 +60,11 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh, myGr
       </div>
 
       {expanded && loading && (
-        <p className="text-xs text-zinc-500 py-2">Loading trips...</p>
+        <p className="text-xs text-muted py-2">Loading trips...</p>
       )}
 
       {expanded && !loading && trips.length === 0 && (
-        <p className="text-xs text-zinc-500 py-2">No saved trips yet. Plan a route and save it!</p>
+        <p className="text-xs text-muted py-2">No saved trips yet. Plan a route and save it!</p>
       )}
 
       {expanded && !loading && trips.length > 0 && (
@@ -83,13 +83,13 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh, myGr
                 className={`group flex flex-col gap-1 rounded-lg border px-3 py-2.5 transition-colors cursor-pointer ${
                   isShared
                     ? "bg-indigo-950/30 border-indigo-800/40 hover:border-indigo-600/60"
-                    : "bg-zinc-800 border-zinc-700 hover:border-zinc-500"
+                    : "bg-surface-alt border-border hover:border-surface-hover"
                 }`}
                 onClick={() => !isConfirming && !isSharing && onSelect(trip)}
               >
                 {/* Top row: name + badges */}
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-zinc-200 truncate pr-2">
+                  <span className="text-sm font-medium text-secondary truncate pr-2">
                     {trip.name}
                   </span>
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -97,7 +97,7 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh, myGr
                       <span className={`text-[10px] px-1.5 py-0.5 rounded ${
                         trip.ownership === "shared_editor"
                           ? "bg-blue-900/50 text-blue-300"
-                          : "bg-zinc-700/50 text-zinc-400"
+                          : "bg-surface-hover/50 text-muted"
                       }`}>
                         {trip.ownership === "shared_editor" ? "shared • edit" : "shared • view"}
                       </span>
@@ -108,7 +108,7 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh, myGr
                       </span>
                     )}
                     {meta && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-zinc-700/60 text-zinc-400">
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-hover/60 text-muted">
                         {meta.icon} {meta.label}
                       </span>
                     )}
@@ -122,17 +122,17 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh, myGr
 
                 {/* Description */}
                 {trip.description && (
-                  <p className="text-[11px] text-zinc-500 line-clamp-1">{trip.description}</p>
+                  <p className="text-[11px] text-muted line-clamp-1">{trip.description}</p>
                 )}
 
                 {/* Stats row */}
-                <div className="flex items-center gap-3 text-[11px] text-zinc-500">
+                <div className="flex items-center gap-3 text-[11px] text-muted">
                   <span>{formatDistance(trip.total_distance_m)}</span>
                   <span>{formatTime(trip.total_time_s)}</span>
                   {trip.total_moto_score !== null && trip.total_moto_score !== undefined && (
                     <span className={
                       trip.total_moto_score >= 0.5 ? "text-green-500" :
-                      trip.total_moto_score >= 0.3 ? "text-yellow-500" : "text-zinc-500"
+                      trip.total_moto_score >= 0.3 ? "text-yellow-500" : "text-muted"
                     }>
                       Score: {(trip.total_moto_score * 100).toFixed(0)}
                     </span>
@@ -164,10 +164,10 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh, myGr
                 {/* Share dropdown */}
                 {isSharing && (
                   <div
-                    className="flex flex-col gap-1 pt-1 border-t border-zinc-700/50"
+                    className="flex flex-col gap-1 pt-1 border-t border-border/50"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <span className="text-[10px] text-zinc-400">Share with group:</span>
+                    <span className="text-[10px] text-muted">Share with group:</span>
                     {myGroups.filter((g) => g.my_role !== "viewer").length === 0 ? (
                       <span className="text-[10px] text-zinc-600">No groups available</span>
                     ) : (
@@ -178,7 +178,7 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh, myGr
                           <button
                             key={g.id}
                             onClick={() => handleShare(trip.id, g.id, !!trip.is_multiday)}
-                            className="text-left text-[11px] px-2 py-1 rounded bg-zinc-900 hover:bg-zinc-700 text-zinc-300 transition-colors"
+                            className="text-left text-[11px] px-2 py-1 rounded bg-surface hover:bg-surface-hover text-secondary transition-colors"
                           >
                             {g.name}
                           </button>
@@ -189,7 +189,7 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh, myGr
                     )}
                     <button
                       onClick={() => setSharingTripId(null)}
-                      className="text-[10px] text-zinc-500 hover:text-zinc-300 mt-1"
+                      className="text-[10px] text-muted hover:text-secondary mt-1"
                     >
                       Cancel
                     </button>
@@ -199,7 +199,7 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh, myGr
                 {/* Delete confirmation */}
                 {isConfirming ? (
                   <div
-                    className="flex items-center gap-2 pt-1 border-t border-zinc-700/50"
+                    className="flex items-center gap-2 pt-1 border-t border-border/50"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <span className="text-[11px] text-red-400">Delete this trip?</span>
@@ -211,19 +211,19 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh, myGr
                     </button>
                     <button
                       onClick={() => setConfirmDeleteId(null)}
-                      className="text-[11px] text-zinc-400 hover:text-zinc-200"
+                      className="text-[11px] text-muted hover:text-secondary"
                     >
                       Cancel
                     </button>
                   </div>
                 ) : !isSharing && (
-                  <div className="hidden group-hover:flex items-center gap-3 pt-1 border-t border-zinc-700/50">
+                  <div className="hidden group-hover:flex items-center gap-3 pt-1 border-t border-border/50">
                     {/* Export — available to all */}
                     {trip.is_multiday ? (
                       <a
                         href={exportAllDaysGpxUrl(trip.id)}
                         onClick={(e) => e.stopPropagation()}
-                        className="text-[10px] text-zinc-500 hover:text-blue-400 transition-colors"
+                        className="text-[10px] text-muted hover:text-blue-400 transition-colors"
                         title="Export all days as ZIP"
                       >
                         Export ZIP
@@ -232,7 +232,7 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh, myGr
                       <a
                         href={exportTripGpxUrl(trip.id)}
                         onClick={(e) => e.stopPropagation()}
-                        className="text-[10px] text-zinc-500 hover:text-blue-400 transition-colors"
+                        className="text-[10px] text-muted hover:text-blue-400 transition-colors"
                         title="Export as GPX"
                       >
                         Export GPX
@@ -242,7 +242,7 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh, myGr
                     {myGroups.length > 0 && canEdit && (
                       <button
                         onClick={(e) => { e.stopPropagation(); setSharingTripId(trip.id); }}
-                        className="text-[10px] text-zinc-500 hover:text-indigo-400 transition-colors"
+                        className="text-[10px] text-muted hover:text-indigo-400 transition-colors"
                       >
                         Share
                       </button>
@@ -251,7 +251,7 @@ export function SavedTrips({ trips, loading, onSelect, onDelete, onRefresh, myGr
                     {!isShared && (
                       <button
                         onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(trip.id); }}
-                        className="text-[10px] text-zinc-500 hover:text-red-400 transition-colors"
+                        className="text-[10px] text-muted hover:text-red-400 transition-colors"
                       >
                         Delete
                       </button>

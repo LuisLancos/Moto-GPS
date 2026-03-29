@@ -271,7 +271,11 @@ Create a new vehicle.
   "model": "Monster 937",
   "year": 2024,
   "picture_base64": null,
-  "is_default": true
+  "is_default": true,
+  "fuel_type": "petrol",
+  "consumption_value": 55.0,
+  "consumption_unit": "mpg",
+  "tank_size_litres": 15.0
 }
 ```
 
@@ -283,6 +287,10 @@ Create a new vehicle.
 | `year` | int | No | Model year |
 | `picture_base64` | string | No | Base64-encoded image (max ~2MB) |
 | `is_default` | bool | No | If true, unsets previous default |
+| `fuel_type` | string | No | `"petrol"`, `"diesel"`, or `"electric"` |
+| `consumption_value` | float | No | Fuel consumption value |
+| `consumption_unit` | string | No | `"mpg"` or `"l_per_100km"` |
+| `tank_size_litres` | float | No | Tank capacity in litres |
 
 ### PATCH /api/vehicles/{vehicle_id}
 
@@ -597,7 +605,7 @@ Detect anomalies in a calculated route and suggest improvements.
 
 | Type | Severity | Detection |
 |------|----------|-----------|
-| `backtracking` | issue | Segment bearing deviates >120 degrees from overall route direction |
+| `backtracking` | issue | Segment bearing deviates >120 degrees from overall route direction. **Loop-aware**: suppressed on return legs of loop routes to avoid false alerts. |
 | `close_proximity` | warning | Consecutive waypoints are <5% of average spacing apart |
 | `detour_ratio` | warning | Leg's routed distance is >2.5x the straight-line distance |
 | `u_turn` | issue | Route reverses direction >150 degrees for >1km |
@@ -605,6 +613,8 @@ Detect anomalies in a calculated route and suggest improvements.
 | `road_quality_drop` | warning | A segment scores <50% of the route average |
 | `missed_high_scoring_road` | suggestion | A high-scoring scenic road within 2km was not used |
 | `better_parallel_road` | suggestion | A higher-scoring parallel road exists within 1km |
+
+**Notes:** Anomaly highlights are automatically cleared on route recalculation. Severity levels use color-coded indicators in the UI.
 
 **Fix actions** — each anomaly now returns a `fixes` array (multiple options):
 
@@ -637,6 +647,190 @@ Snap a coordinate to the nearest motorcycle-routable road using Valhalla's locat
 ```
 
 If no road is found nearby, returns the original coordinates with `"snapped": false`.
+
+---
+
+### POST /api/route/multi-mode
+
+Plan a route where each day can use a different route type. Used automatically when per-day route types are enabled.
+
+**Request Body**
+```json
+{
+  "waypoints": [
+    {"lat": 52.4862, "lng": -1.8904, "label": "Birmingham"},
+    {"lat": 52.0, "lng": -1.5, "label": "Overnight Stop"},
+    {"lat": 51.5405, "lng": 0.7129, "label": "Southend-on-Sea"}
+  ],
+  "day_overlays": [
+    {"day": 1, "start_waypoint_idx": 0, "end_waypoint_idx": 1, "route_type": "scenic"},
+    {"day": 2, "start_waypoint_idx": 1, "end_waypoint_idx": 2, "route_type": "fast"}
+  ],
+  "preferences": null
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `waypoints` | `Waypoint[]` | Yes | All waypoints for the full trip |
+| `day_overlays` | `DayOverlay[]` | Yes | Day definitions with per-day `route_type` |
+| `preferences` | `RoutePreferences` | No | Custom weights (overrides route_type if provided) |
+
+Each day overlay must include `route_type` (`"scenic"`, `"balanced"`, or `"fast"`). The backend plans each day's segment independently with its own costing parameters, then stitches results into one combined route.
+
+**Response** -- same `RouteResponse` format as `POST /api/route`.
+
+---
+
+## POI System
+
+### GET /api/pois/route
+
+Find POIs along a route corridor using PostGIS `ST_DWithin` queries.
+
+**Query Parameters**
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `coordinates` | string | Yes | JSON array of `[lng, lat]` pairs from the route shape |
+| `categories` | string | No | Comma-separated category list (e.g., `"fuel,hotel,restaurant"`) |
+| `radius_m` | int | No | Search radius in meters (default: 5000) |
+
+**Available categories:** `fuel`, `hotel`, `restaurant`, `pub`, `castle`, `viewpoint`, `museum`, `cafe`, `campsite`, `attraction`, `biker_spot`
+
+**Response**
+```json
+[
+  {
+    "id": 12345,
+    "name": "Shell Garage",
+    "category": "fuel",
+    "lat": 51.505,
+    "lng": -0.09,
+    "tags": {"brand": "Shell", "opening_hours": "24/7"},
+    "source": "osm"
+  }
+]
+```
+
+### GET /api/poi-search
+
+Search POIs by name. Combines results from the local PostGIS database, Nominatim geocoding, and UK postcode lookup.
+
+**Query Parameters**
+
+| Param | Type | Required | Description |
+|-------|------|----------|-------------|
+| `q` | string | Yes | Search query (min 2 chars). Recognizes UK postcodes (e.g., "SS0 0BD") |
+
+**Response**
+```json
+[
+  {
+    "name": "The Ace Cafe",
+    "category": "biker_spot",
+    "lat": 51.5404,
+    "lng": -0.2772,
+    "source": "local"
+  },
+  {
+    "name": "SS0 0BD",
+    "lat": 51.5358,
+    "lng": 0.6764,
+    "source": "postcode"
+  }
+]
+```
+
+---
+
+## AI Trip Planner
+
+### POST /api/ai/chat
+
+Send a message to the AI trip planner. The backend orchestrates a Gemini conversation with function calling for trip planning.
+
+**Requires auth.** Requires `GEMINI_API_KEY` environment variable.
+
+**Request Body**
+```json
+{
+  "message": "Plan a 3-day motorcycle trip from London to the Lake District via the Cotswolds",
+  "conversation_history": [],
+  "current_waypoints": []
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `message` | string | Yes | User's natural language message |
+| `conversation_history` | array | No | Previous messages for context continuity |
+| `current_waypoints` | `Waypoint[]` | No | Currently planned waypoints for context |
+
+**Response**
+```json
+{
+  "reply": "Here's a suggested 3-day route through the Cotswolds...",
+  "suggested_waypoints": [
+    {"lat": 51.7520, "lng": -1.2577, "label": "Oxford"},
+    {"lat": 51.8994, "lng": -2.0783, "label": "Cheltenham"}
+  ],
+  "suggested_day_splits": [
+    {"day": 1, "end_waypoint_idx": 3, "name": "London to Cotswolds"},
+    {"day": 2, "end_waypoint_idx": 6, "name": "Cotswolds to Peak District"}
+  ],
+  "poi_suggestions": [
+    {
+      "name": "Ace Cafe London",
+      "lat": 51.5404,
+      "lng": -0.2772,
+      "category": "biker_spot",
+      "description": "Iconic biker meetup"
+    }
+  ],
+  "tool_calls_made": ["suggest_trip_plan", "search_nearby_pois"]
+}
+```
+
+The AI uses function calling with two tools:
+- `suggest_trip_plan` -- generates waypoints and day splits
+- `search_nearby_pois` -- batch-searches for relevant POIs along the suggested route
+
+POI suggestions are displayed on the map as markers with "Add as waypoint" popups.
+
+---
+
+## Settings
+
+### GET /api/settings
+
+Get the current user's settings (fuel prices, unit preferences).
+
+**Requires auth.**
+
+**Response**
+```json
+{
+  "fuel_price_per_litre": 1.45,
+  "electricity_price_per_kwh": 0.30,
+  "unit_system": "miles"
+}
+```
+
+### PATCH /api/settings
+
+Update user settings.
+
+**Requires auth.**
+
+**Request Body** (all fields optional)
+```json
+{
+  "fuel_price_per_litre": 1.50,
+  "electricity_price_per_kwh": 0.28,
+  "unit_system": "km"
+}
+```
 
 ---
 

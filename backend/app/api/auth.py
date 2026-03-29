@@ -126,7 +126,7 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
     """Login with email and password."""
     result = await db.execute(
         text(
-            "SELECT id, email, name, password_hash, is_admin, is_blocked "
+            "SELECT id, email, name, password_hash, is_admin, is_blocked, preferences "
             "FROM users WHERE email = :email"
         ),
         {"email": req.email.lower().strip()},
@@ -148,6 +148,7 @@ async def login(req: LoginRequest, db: AsyncSession = Depends(get_db)):
             "name": row.name,
             "email": row.email,
             "is_admin": row.is_admin,
+            "preferences": row.preferences if hasattr(row, "preferences") else {},
         },
     }
 
@@ -160,6 +161,7 @@ async def get_me(user: dict = Depends(get_current_user)):
         "name": user["name"],
         "email": user["email"],
         "is_admin": user["is_admin"],
+        "preferences": user.get("preferences", {}),
     }
 
 
@@ -196,6 +198,26 @@ async def update_me(
     await db.commit()
 
     return {"status": "updated"}
+
+
+@router.patch("/auth/preferences")
+async def update_preferences(
+    prefs: dict,
+    user: dict = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update user preferences (units, etc.)."""
+    import json
+    # Merge with existing preferences
+    existing = user.get("preferences", {}) or {}
+    existing.update(prefs)
+
+    await db.execute(
+        text("UPDATE users SET preferences = :prefs, updated_at = NOW() WHERE id = :id"),
+        {"prefs": json.dumps(existing), "id": user["id"]},
+    )
+    await db.commit()
+    return {"preferences": existing}
 
 
 @router.post("/auth/change-password")
