@@ -158,8 +158,8 @@ export default function AdminPage() {
           <div
             className={`px-4 py-2.5 rounded-md text-sm font-medium ${
               feedback.type === "success"
-                ? "bg-green-900/40 text-green-300 border border-green-800/50"
-                : "bg-red-900/40 text-red-300 border border-red-800/50"
+                ? "bg-green-100 text-green-800 border border-green-200 dark:bg-green-900/40 dark:text-green-300 dark:border-green-800/50"
+                : "bg-red-100 text-red-800 border border-red-200 dark:bg-red-900/40 dark:text-red-300 dark:border-red-800/50"
             }`}
           >
             {feedback.msg}
@@ -212,10 +212,10 @@ export default function AdminPage() {
                         <span
                           className={`px-2 py-0.5 rounded text-[10px] font-medium ${
                             c.status === "available"
-                              ? "bg-green-900/50 text-green-400"
+                              ? "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400"
                               : c.status === "used"
                                 ? "bg-surface-alt text-muted"
-                                : "bg-red-900/50 text-red-400"
+                                : "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400"
                           }`}
                         >
                           {c.status}
@@ -256,7 +256,7 @@ export default function AdminPage() {
                             </button>
                           </div>
                         ) : (
-                          <span className="text-zinc-600">—</span>
+                          <span className="text-muted">—</span>
                         )}
                       </td>
                     </tr>
@@ -310,8 +310,8 @@ export default function AdminPage() {
                         <span
                           className={`px-2 py-0.5 rounded text-[10px] font-medium ${
                             u.is_blocked
-                              ? "bg-red-900/50 text-red-400"
-                              : "bg-green-900/50 text-green-400"
+                              ? "bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-400"
+                              : "bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400"
                           }`}
                         >
                           {u.is_blocked ? "Blocked" : "Active"}
@@ -319,7 +319,7 @@ export default function AdminPage() {
                       </td>
                       <td className="py-2 pr-4">
                         {u.is_admin && (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-900/50 text-amber-400">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400">
                             Admin
                           </span>
                         )}

@@ -306,8 +306,8 @@ export default function GroupsPage() {
 
   const roleColor = (role: string) => {
     switch (role) {
-      case "owner": return "bg-amber-900/50 text-amber-400";
-      case "editor": return "bg-blue-900/50 text-blue-400";
+      case "owner": return "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400";
+      case "editor": return "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-400";
       default: return "bg-surface-alt text-muted";
     }
   };
@@ -322,8 +322,8 @@ export default function GroupsPage() {
           <div
             className={`px-4 py-2.5 rounded-md text-sm font-medium ${
               feedback.type === "success"
-                ? "bg-green-900/40 text-green-300 border border-green-800/50"
-                : "bg-red-900/40 text-red-300 border border-red-800/50"
+                ? "bg-green-100 text-green-800 border border-green-200 dark:bg-green-900/40 dark:text-green-300 dark:border-green-800/50"
+                : "bg-red-100 text-red-800 border border-red-200 dark:bg-red-900/40 dark:text-red-300 dark:border-red-800/50"
             }`}
           >
             {feedback.msg}
@@ -550,10 +550,10 @@ export default function GroupsPage() {
                             }`}
                           >
                             <span>
-                              <span className={alreadyMember ? "text-zinc-600" : "text-secondary"}>{u.name}</span>
+                              <span className={alreadyMember ? "text-muted" : "text-secondary"}>{u.name}</span>
                               <span className="text-muted ml-2">{u.email}</span>
                             </span>
-                            <span className={alreadyMember ? "text-zinc-600" : "text-blue-400"}>
+                            <span className={alreadyMember ? "text-muted" : "text-blue-400"}>
                               {alreadyMember ? "Already member" : "Invite →"}
                             </span>
                           </button>
@@ -608,7 +608,7 @@ export default function GroupsPage() {
                 Shared Trips & Routes ({selectedGroup.shared_items.length})
               </h3>
               {selectedGroup.shared_items.length === 0 ? (
-                <p className="text-xs text-zinc-600">
+                <p className="text-xs text-muted">
                   Nothing shared yet. Share trips from the route planner.
                 </p>
               ) : (

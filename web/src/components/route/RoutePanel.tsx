@@ -318,10 +318,10 @@ export function RoutePanel({
                   <span
                     className={`text-xs font-mono ${
                       route.moto_score >= 0.5
-                        ? "text-green-400"
+                        ? "text-green-700 dark:text-green-400"
                         : route.moto_score >= 0.3
-                          ? "text-yellow-400"
-                          : "text-zinc-400"
+                          ? "text-yellow-700 dark:text-yellow-400"
+                          : "text-muted"
                     }`}
                   >
                     Score: {(route.moto_score * 100).toFixed(0)}

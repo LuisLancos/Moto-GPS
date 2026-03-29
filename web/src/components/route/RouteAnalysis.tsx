@@ -9,8 +9,8 @@ const SEVERITY_STYLES: Record<string, { bg: string; border: string; text: string
 };
 
 const HEALTH_BADGE: Record<string, { label: string; color: string }> = {
-  good: { label: "Route looks good ✓", color: "text-green-400" },
-  fair: { label: "Could be improved", color: "text-amber-400" },
+  good: { label: "Route looks good ✓", color: "text-green-700 dark:text-green-400" },
+  fair: { label: "Could be improved", color: "text-amber-700 dark:text-amber-400" },
   poor: { label: "Needs attention", color: "text-red-400" },
 };
 
@@ -148,7 +148,7 @@ export function RouteAnalysis({
             {/* Fix buttons */}
             {fixes.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[10px] text-zinc-600 mr-0.5">Fix:</span>
+                <span className="text-[10px] text-muted mr-0.5">Fix:</span>
                 {fixes.map((fix, fixIdx) => {
                   const fl = fixLabel(fix);
                   return (
@@ -170,7 +170,7 @@ export function RouteAnalysis({
 
             {/* No-action hint */}
             {fixes.length === 0 && (
-              <p className="text-[10px] text-zinc-600 italic">
+              <p className="text-[10px] text-muted italic">
                 {anomaly.fix.action === "no_action" ? anomaly.fix.description : "No automatic fix available — review the waypoints manually."}
               </p>
             )}

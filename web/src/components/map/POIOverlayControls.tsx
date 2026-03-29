@@ -102,7 +102,7 @@ export function POIOverlayControls({
           })}
           {/* Status line */}
           <div className="border-t border-border mt-1 pt-1 px-3 pb-1">
-            {loading && <span className="text-[9px] text-amber-400 animate-pulse">Loading...</span>}
+            {loading && <span className="text-[9px] text-amber-700 dark:text-amber-400 animate-pulse">Loading...</span>}
             {!loading && poiCount > 0 && <span className="text-[9px] text-muted">{poiCount} POIs along route</span>}
             {!loading && poiCount === 0 && activeCount > 0 && <span className="text-[9px] text-muted">No POIs found</span>}
           </div>

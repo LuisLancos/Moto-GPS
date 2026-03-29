@@ -116,7 +116,7 @@ export function DayPlannerPanel({
           onChange={(e) => onSetDailyTarget(Number(e.target.value))}
           className="w-full h-1 bg-surface-hover rounded-lg appearance-none cursor-pointer accent-blue-500"
         />
-        <div className="flex justify-between text-[10px] text-zinc-600">
+        <div className="flex justify-between text-[10px] text-muted">
           <span>100km</span>
           <span>800km</span>
         </div>
@@ -194,7 +194,7 @@ export function DayPlannerPanel({
                     {/* Import GPX into this day */}
                     {onImportDayGpx && (
                       <label
-                        className="text-[10px] text-muted hover:text-green-400 transition-colors cursor-pointer"
+                        className="text-[10px] text-muted hover:text-green-700 dark:hover:text-green-400 transition-colors cursor-pointer"
                         title={`Import GPX into Day ${day.day}`}
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -253,7 +253,7 @@ export function DayPlannerPanel({
                         </span>
                         <button
                           onClick={() => onDayRouteTypeChange(day.day, tripRouteType)}
-                          className="text-[10px] text-zinc-600 hover:text-amber-400 transition-colors ml-auto"
+                          className="text-[10px] text-muted hover:text-amber-700 dark:hover:text-amber-400 transition-colors ml-auto"
                         >
                           Unsync
                         </button>
@@ -277,7 +277,7 @@ export function DayPlannerPanel({
                         ))}
                         <button
                           onClick={() => onDayRouteTypeChange(day.day, undefined)}
-                          className="text-[10px] text-zinc-600 hover:text-green-400 transition-colors ml-auto"
+                          className="text-[10px] text-muted hover:text-green-700 dark:hover:text-green-400 transition-colors ml-auto"
                           title="Re-sync with trip default"
                         >
                           🔗 Sync
@@ -291,7 +291,7 @@ export function DayPlannerPanel({
                 <div className="flex items-center gap-3 text-[11px] text-muted">
                   <span>{formatDist(day.distance_m)}</span>
                   <span>{formatTime(day.time_s)}</span>
-                  <span className="text-zinc-600">{day.waypoint_count} wp</span>
+                  <span className="text-muted">{day.waypoint_count} wp</span>
                   {defaultVehicle && (() => {
                     const est = estimateFuel(day.distance_m, defaultVehicle);
                     if (!est) return null;
@@ -310,7 +310,7 @@ export function DayPlannerPanel({
                           <span className="text-blue-400 truncate flex-1" title={sug.hotel.address || ""}>
                             🏨 {sug.hotel.name}
                             {sug.hotel.distance_km != null && (
-                              <span className="text-zinc-600"> ({sug.hotel.distance_km.toFixed(1)}km)</span>
+                              <span className="text-muted"> ({sug.hotel.distance_km.toFixed(1)}km)</span>
                             )}
                           </span>
                           {onAddSuggestedWaypoint && (

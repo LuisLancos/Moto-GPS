@@ -1,113 +1,144 @@
-# Moto-GPS
+# Moto-GPS — Smart Motorcycle Route Planner
 
-Moto-GPS is a motorcycle navigation platform that finds genuinely good motorcycle routes using context-aware road scoring. Rather than simple "avoid motorways" rules, it scores every road segment on 5 dimensions (curvature, surface quality, scenic interest, elevation, urban density) and uses a Route-Score-Rerank strategy against a pre-scored PostGIS database of 5.15 million UK road segments.
+**Plan motorcycle routes that actually make sense.**
 
-## Key Features
+Every existing GPS app treats route planning as a binary choice: "avoid motorways" or "prefer curvy roads." The result? Scenic mode sends you down a farm track when you just need to cross a town. Fast mode ignores a gorgeous mountain pass 2 miles off the motorway.
 
-### Route Planning
-- **Smart motorcycle routing** with parallel Valhalla fan-out and PostGIS-based reranking
-- **3 route presets**: scenic, balanced, fast -- or custom weights for all 5 scoring dimensions
-- **Per-day route types** -- each day in a multi-day trip can have its own route type (scenic/balanced/fast), with unsync/sync controls on day cards
-- **Route analysis**: 8 anomaly detectors find problems (backtracking, U-turns, missed scenic roads) with one-click fix suggestions. Loop route detection avoids false backtracking alerts on return legs. Severity-based coloring and improved fix actions (move/remove waypoint).
-- **Snap-to-road** waypoints via Valhalla's locate API
-- **Smart waypoint insertion** at the closest route segment, not just appended
-- **Reverse geocoding** -- map clicks auto-resolve to human-readable labels (e.g., "A5, Weedon Bec") via Nominatim, with expandable waypoint details and coordinate copy
+Moto-GPS fixes this. It scores every road in the UK on 5 dimensions — curvature, surface quality, scenic interest, elevation, and urban density — then uses AI-powered planning to build routes that are scenic in the countryside and practical through towns. The way a motorcyclist actually rides.
 
-### AI Trip Planner (Gemini-Powered)
-- **Chat-based interface** in the left panel -- describe your trip in natural language and the AI suggests waypoints, day splits, and POIs
-- Conversational trip planning powered by Google Gemini with motorcycle-specific knowledge
-- **Function calling**: `suggest_trip_plan` and `search_nearby_pois` (batch) for structured suggestions
-- POI suggestions shown on the map as markers with "Add as waypoint" popups
-- Backend orchestration via `POST /api/ai/chat` with tool calling pipeline
-- Requires `GEMINI_API_KEY` environment variable
+---
 
-### POI Overlay System (PostGIS-Based)
-- **83,000+ UK POIs** imported from OpenStreetMap (fuel, hotels, restaurants, pubs, castles, viewpoints, museums, campsites, attractions)
-- **1,461 biker-specific cafes/spots** scraped from ukbikercafes.co.uk
-- Compact **POI toolbar** on map with category toggles (fuel, hotels, restaurants, pubs, castles, viewpoints, museums, cafes, campsites, attractions, biker spots)
-- **Route corridor search**: finds POIs within a configurable distance of the current route
-- **POI name search** with combined results from local database, Nominatim, and UK postcode lookup
-- Click any POI marker for details popup with "Add as waypoint" action
-- Optional **Google Places enrichment** on click for photos and ratings (`GOOGLE_PLACES_API_KEY`)
-- Import pipeline: `pipeline/import_pois.py` (OSM PBF), `pipeline/scrape_bikercafes.py`
+## What Makes Moto-GPS Different
 
-### Fuel Cost Estimation
-- Vehicle fuel data: fuel type, consumption (MPG or L/100km), tank size
-- **Per-day and full-trip fuel cost** displayed in day cards
-- Fuel stops needed calculated from vehicle tank range
-- Cost calculation based on user-configured price per litre/kWh
-- Fuel price settings page
+### 1. Context-Aware Routing (Not Binary Rules)
 
-### Multi-Day Trip Planning
-- Plan multi-day trips as one continuous route with **day overlays** (lenses into the master route)
-- **Auto-split** by target daily distance
-- **Per-day route stats** -- selecting a day shows that day's distance/time/score, key roads, and turn-by-turn directions
-- **Auto-suggest on day split** -- automatically finds nearest hotel/B&B for overnight stops and suggests fuel stops based on tank range
-- Per-day GPX export, full-trip ZIP export
-- Import trips from GPX files or ZIP bundles
+Other apps apply one rule to the entire route. Moto-GPS scores **5.15 million UK road segments** individually and picks the best combination:
 
-### GPX Import / Export
-- Compact GPX 1.1 export (navigation points only, not full track dumps)
-- Smart GPX import from Garmin, Calimoto, Kurviger, Google Earth, and any GPX 1.1 source
-- Per-day and full-trip export for multi-day trips
+- **Scenic countryside?** → B-roads, mountain passes, coastal stretches
+- **Crossing a city?** → Dual carriageways and ring roads (fast, not frustrating)
+- **Quick transit day?** → Motorways to get there, then twisties when you arrive
 
-### Light/Dark Theme
-- System-aware theme with manual toggle in the top nav bar
-- CSS variable-based theming with semantic tokens (`--page`, `--surface`, `--text-primary`, etc.)
-- Theme persisted in localStorage via ThemeContext
-- MapTiler tiles switch between `streets-v2` (light) and `streets-v2-dark` (dark)
-- All components use semantic color tokens (`bg-page`, `bg-surface`, `text-primary`, `text-muted`, `border-border`)
+You can even set **different route modes per day** — Day 1 on the motorway to reach the mountains, Day 2 on scenic B-roads enjoying them.
 
-### Unit System (Miles / Km)
-- User-selectable unit system with miles as default
-- Toggle in Profile > Settings via UnitContext
-- All distances displayed in the user's preferred unit
-- Day target slider shows both km and miles
+### 2. AI Trip Planner — Describe It, Ride It
 
-### UK Postcode Search
-- Search bar recognizes UK postcodes (e.g., "SS0 0BD")
-- Uses postcodes.io API (free, no key needed)
-- Results combined with Nominatim and local POI search
+Tell the AI what you want in plain English:
 
-### User Management
-- **Invite-only registration** -- admins generate invite codes, share registration links manually
-- JWT-based authentication with Bearer tokens (24-hour expiry)
-- User profiles with name, email, password management
-- **Vehicle garage** -- add motorcycles with type, brand, model, year, photo, fuel type, consumption, and tank size
-- **Admin panel** -- generate/delete invite codes, block/unblock users, promote/demote admins
+> *"Plan a 3-day trip from Southend to Scotland. Scenic with twisties, bit of coastal and mountains. Max 200 miles per day."*
 
-### Adventure Groups
-- Create groups with name, description, target date, and duration
-- **Role-based access**: owner, editor, viewer
-- Invite existing platform users by searching name/email
-- Group invitation system with pending/accepted/declined status and notification badge
+The AI (powered by Google Gemini) builds the entire trip: waypoints, day splits, overnight hotels, fuel stops, and points of interest — castles, biker cafes, viewpoints. One click to apply it all to the map.
 
-### Trip & Route Sharing
-- Share trips and routes with adventure groups from the Saved Trips panel
-- Group-shared trips appear in each member's trip list with ownership indicators
-- **Editors** can edit shared routes; **viewers** can only view and export
-- **Clone** shared items to create your own independent copy
-- Only the trip owner can delete; group owner or original sharer can unshare
+No other motorcycle GPS app has this.
 
-## Architecture
+### 3. 83,000+ Points of Interest on the Map
+
+Not just fuel stations. Moto-GPS has **83,000+ UK POIs** from OpenStreetMap plus **1,461 curated biker-specific spots** — cafes, meetup points, and hangouts from ukbikercafes.co.uk.
+
+Toggle categories on/off: ⛽ Fuel · 🏨 Hotels · 🍽️ Restaurants · 🍺 Pubs · 🏰 Castles · 👁️ Viewpoints · 🏛️ Museums · ☕ Cafes · ⛺ Campsites · 📍 Attractions · 🏍️ Biker Spots
+
+Click any POI for details and add it as a waypoint with one tap.
+
+### 4. Smart Multi-Day Trip Planning
+
+Plan a full trip, then split it into daily segments. Each day is a **lens into the master route** — not a separate route that gets out of sync.
+
+- **Auto-split** by your preferred daily mileage (configurable per route type in settings)
+- **Auto-suggest overnight stays** — finds the nearest hotel/B&B to each day's endpoint
+- **Auto-suggest fuel stops** — calculates from your motorcycle's actual tank range and consumption
+- **Per-day stats** — select a day to see its distance, time, score, key roads, and turn-by-turn directions
+- **Per-day route type** — motorway one day, scenic the next
+
+### 5. Fuel Cost Intelligence
+
+Register your motorcycle with its fuel type, consumption (MPG), and tank size. Moto-GPS then:
+
+- Calculates **fuel cost per day and per trip**
+- Shows how many **fuel stops you'll need** based on your tank range
+- Suggests actual fuel stations from the POI database along your route
+
+### 6. Adventure Groups — Plan Together, Ride Together
+
+Create an Adventure Group, invite your riding mates, share routes and trips. Group members can:
+
+- **Editors**: Collaboratively edit routes and trips
+- **Viewers**: View and export routes, but can't modify
+- **Clone**: Copy any shared trip to your own collection
+
+Every member sees shared trips in their Saved Trips panel with the group name as a badge.
+
+### 7. Route Analysis That Actually Helps
+
+After planning a route, the analyzer checks for 8 types of problems:
+
+- Backtracking (smart enough to know loop routes aren't backtracking)
+- Close waypoints that can be merged
+- Excessive detours
+- U-turns
+- Road quality drops
+- Missed scenic roads nearby
+
+Each problem shows on the map with one-click fixes.
+
+### 8. Works With Your Existing GPS
+
+Export routes as **compact GPX files** (30-80 navigation points, not 17,000-point track dumps) that work with Garmin, Calimoto, Kurviger, and any GPX 1.1 device. Import routes from any of those apps too.
+
+---
+
+## Feature Summary
+
+| Feature | Moto-GPS | Calimoto | Kurviger | Google Maps |
+|---------|:--------:|:--------:|:--------:|:-----------:|
+| Motorcycle-specific routing | ✅ 5-dimension scoring | ✅ Basic | ✅ Good | ❌ |
+| Context-aware (scenic + practical) | ✅ | ❌ | ❌ | ❌ |
+| AI trip planning (natural language) | ✅ | ❌ | ❌ | ❌ |
+| Per-day route modes | ✅ | ❌ | ❌ | ❌ |
+| 83k+ POIs on map | ✅ | Limited | Limited | ✅ |
+| Biker-specific POIs (1,461) | ✅ | ❌ | ❌ | ❌ |
+| Multi-day trip planning | ✅ | ❌ | Basic | ❌ |
+| Fuel cost estimation | ✅ | ❌ | ❌ | ❌ |
+| Auto-suggest hotels + fuel stops | ✅ | ❌ | ❌ | ❌ |
+| Group collaboration | ✅ | ❌ | ❌ | ❌ |
+| Route analysis + fix suggestions | ✅ | ❌ | ❌ | ❌ |
+| GPX import/export | ✅ | ✅ | ✅ | ❌ |
+| Light + dark theme | ✅ | ✅ | ✅ | ✅ |
+| Self-hosted (own data) | ✅ | ❌ | ❌ | ❌ |
+
+---
+
+## How It Works
 
 ```
-Browser (Next.js 16 + MapLibre GL)
-        |
-        | REST API (JWT auth)
-        v
-FastAPI Backend (Python 3.13)
-   |         |         |         |
-   v         v         v         v
-Valhalla   PostGIS   Martin   Gemini API
-(routing)  (scores,  (vector  (AI trip
- :8010     users,     tiles)   planner)
-           POIs,      :3002
-           groups)
-           :5434
+You describe your trip (or click waypoints on the map)
+        │
+        ▼
+   AI Trip Planner (Gemini)
+   suggests waypoints, days, POIs
+        │
+        ▼
+   Route-Score-Rerank Engine
+   ├─ Valhalla generates candidate routes (parallel fan-out)
+   ├─ PostGIS scores each against 5.15M road segments
+   └─ Best routes ranked by motorcycle suitability score
+        │
+        ▼
+   Route displayed on MapLibre GL map
+   with POI overlay, day overlays, and analysis
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for full system design, database schema, and data flow.
+### Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | Next.js 16, React 19, MapLibre GL JS, Tailwind CSS |
+| Backend | FastAPI, Python 3.13, SQLAlchemy async |
+| Database | PostgreSQL 16 + PostGIS 3.4 (5.15M road segments, 83K POIs) |
+| Routing | Valhalla (motorcycle costing, multi-mode per-day) |
+| AI | Google Gemini with function calling |
+| Tiles | Martin vector tile server (road score overlay) |
+| Maps | MapTiler (light/dark basemap themes) |
+
+---
 
 ## Quick Start
 
@@ -116,24 +147,24 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for full system design, database schema, 
 git clone <repo-url> && cd Moto-GPS
 cp .env.example .env
 # Edit .env: set NEXT_PUBLIC_MAPTILER_KEY, JWT_SECRET, ADMIN_PASSWORD
-# Optional: set GEMINI_API_KEY (AI planner), GOOGLE_PLACES_API_KEY (POI enrichment)
+# For AI planner: set GEMINI_API_KEY
 
-# 2. Start Docker services (PostGIS, Valhalla, Martin)
+# 2. Start infrastructure (PostGIS, Valhalla, Martin)
 docker compose up -d
 
-# 3. Run data pipeline (first time only, ~25 min)
+# 3. Import road data (first time, ~25 min)
 cd pipeline && python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python run_pipeline.py --step download,import,score
 
-# 3b. Import POIs (optional, enables POI overlay)
-python import_pois.py          # Import 83k+ UK POIs from OSM
-python scrape_bikercafes.py    # Import 1,461 biker cafes
+# 3b. Import POIs (optional but recommended)
+python import_pois.py          # 83k UK POIs from OpenStreetMap
+python scrape_bikercafes.py    # 1,461 biker cafes
 
 # 4. Start backend
 cd ../backend && python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python -m app.cli.seed_admin          # Create first admin user
+python -m app.cli.seed_admin   # Create admin user
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 # 5. Start frontend
@@ -141,38 +172,34 @@ cd ../web && npm install && npm run dev
 # Open http://localhost:3001
 ```
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for detailed setup, Docker service configuration, and troubleshooting.
+---
 
 ## Documentation
 
 | Document | Contents |
 |----------|----------|
-| [README.md](README.md) | This file -- project overview and quick start |
-| [API.md](API.md) | Full REST API reference with request/response examples |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | System design, database schema, data flow, frontend structure |
-| [DEVELOPMENT.md](DEVELOPMENT.md) | Local setup, Docker services, pipeline, environment variables |
-| [PIPELINE.md](PIPELINE.md) | Road scoring data pipeline details |
+| [API.md](API.md) | Full REST API reference (auth, routes, trips, groups, POIs, AI) |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System design, database schema, data flow |
+| [DEVELOPMENT.md](DEVELOPMENT.md) | Local setup, Docker services, environment variables |
+| [PIPELINE.md](PIPELINE.md) | Road scoring data pipeline |
 
-## Tech Stack
+---
 
-| Layer | Technology |
-|-------|-----------|
-| Frontend | Next.js 16, React 19, MapLibre GL, TypeScript |
-| Backend | FastAPI, Python 3.13, SQLAlchemy (async), Pydantic |
-| Database | PostgreSQL 16 + PostGIS 3.4 |
-| Routing | Valhalla (motorcycle costing) |
-| AI | Google Gemini (trip planner with function calling) |
-| Tiles | Martin (vector tile server) |
-| Auth | JWT (PyJWT), bcrypt password hashing |
-| Maps | MapTiler (basemap tiles, light/dark themes) |
-| POI Data | OpenStreetMap (Overpass/PBF), ukbikercafes.co.uk, Google Places (optional) |
-| Geocoding | Nominatim (reverse geocoding), postcodes.io (UK postcode lookup) |
+## Security
 
-## Security Model
+- **Invite-only** — no self-registration; admins generate invite codes
+- **JWT authentication** — all endpoints require Bearer token (24h expiry)
+- **Trip ownership** — users can only modify/delete their own trips
+- **Role-based sharing** — editors can edit, viewers can only view/export
+- **Self-hosted** — your data stays on your infrastructure
 
-- **Invite-only**: no self-registration; admins generate invite codes
-- **JWT authentication**: all API endpoints (except health and login/register) require `Authorization: Bearer <token>`
-- **Trip ownership**: users can only modify/delete their own trips
-- **Group-based sharing**: shared trips accessible via group membership with role-based permissions
-- **Admin isolation**: admin endpoints (`/api/admin/*`) protected by `get_current_admin` dependency
-- **Blocked users**: cannot log in or access any authenticated endpoint
+---
+
+## Roadmap
+
+- [ ] Elevation profile visualisation
+- [ ] React Native mobile app (PWA in the meantime)
+- [ ] Europe-wide road data (currently UK only)
+- [ ] Preference learning from ride history
+- [ ] Real-time weather overlay
+- [ ] Live group tracking during rides

@@ -267,7 +267,7 @@ export default function ProfilePage() {
               />
             </div>
             {profileMsg && (
-              <p className={`text-xs ${profileMsg.includes("updated") ? "text-green-400" : "text-red-400"}`}>
+              <p className={`text-xs ${profileMsg.includes("updated") ? "text-green-700 dark:text-green-400" : "text-red-400"}`}>
                 {profileMsg}
               </p>
             )}
@@ -310,7 +310,7 @@ export default function ProfilePage() {
               className="bg-surface-alt border border-border rounded-md px-3 py-2 text-sm text-primary placeholder:text-muted focus:outline-none focus:border-border-focus"
             />
             {pwMsg && (
-              <p className={`text-xs ${pwMsg.includes("changed") ? "text-green-400" : "text-red-400"}`}>
+              <p className={`text-xs ${pwMsg.includes("changed") ? "text-green-700 dark:text-green-400" : "text-red-400"}`}>
                 {pwMsg}
               </p>
             )}
@@ -543,7 +543,7 @@ export default function ProfilePage() {
                           {v.brand} {v.model}
                         </span>
                         {v.is_default && (
-                          <span className="text-[10px] bg-amber-900/50 text-amber-400 px-1.5 py-0.5 rounded">
+                          <span className="text-[10px] bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-400 px-1.5 py-0.5 rounded">
                             Default
                           </span>
                         )}
@@ -694,7 +694,7 @@ function PreferencesSection() {
         {/* Daily miles per route mode */}
         <div className="flex flex-col gap-2">
           <label className="text-xs text-muted font-medium">Max miles per day (for auto-split)</label>
-          <p className="text-[10px] text-zinc-600">Sets the daily distance target when splitting a multi-day trip.</p>
+          <p className="text-[10px] text-muted">Sets the daily distance target when splitting a multi-day trip.</p>
           <div className="grid grid-cols-3 gap-3">
             {[
               { label: "🏔️ Scenic", value: scenicMiles, set: setScenicMiles },
@@ -710,7 +710,7 @@ function PreferencesSection() {
                     onChange={(e) => set(e.target.value)}
                     className="w-full bg-surface-alt border border-border rounded-md px-2 py-1.5 text-sm text-primary focus:outline-none focus:border-border-focus"
                   />
-                  <span className="text-[10px] text-zinc-600">mi</span>
+                  <span className="text-[10px] text-muted">mi</span>
                 </div>
               </div>
             ))}
@@ -727,7 +727,7 @@ function PreferencesSection() {
         {/* Default POI categories */}
         <div className="flex flex-col gap-2">
           <label className="text-xs text-muted font-medium">Default POI categories on map</label>
-          <p className="text-[10px] text-zinc-600">These categories are automatically shown when you plan a route.</p>
+          <p className="text-[10px] text-muted">These categories are automatically shown when you plan a route.</p>
           <div className="flex flex-wrap gap-1.5">
             {POI_CATEGORY_OPTIONS.map(({ id, label }) => (
               <button
@@ -736,7 +736,7 @@ function PreferencesSection() {
                 disabled={saving}
                 className={`text-xs px-2.5 py-1 rounded-md transition-colors border ${
                   selectedPOIs.has(id)
-                    ? "bg-amber-900/50 border-amber-600/60 text-amber-300"
+                    ? "bg-amber-100 border-amber-300 text-amber-800 dark:bg-amber-900/50 dark:border-amber-600/60 dark:text-amber-300"
                     : "bg-surface-alt border-border text-muted hover:text-secondary"
                 } disabled:opacity-50`}
               >
