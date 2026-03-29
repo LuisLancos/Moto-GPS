@@ -59,6 +59,12 @@ JWT_SECRET=change-me-in-production
 ADMIN_EMAIL=admin@motogps.local
 ADMIN_NAME=Admin
 ADMIN_PASSWORD=change-me-in-production
+
+# AI Trip Planner (optional — enables the AI chat panel)
+GEMINI_API_KEY=your_gemini_api_key_here
+
+# Google Places enrichment for POIs (optional — enables photo/rating lookups)
+GOOGLE_PLACES_API_KEY=your_google_places_api_key_here
 ```
 
 ### 2. Start Docker Services
@@ -113,6 +119,29 @@ Verify the import worked:
 PGPASSWORD=motogps_dev psql -h localhost -p 5434 -U motogps -d motogps \
   -c "SELECT count(*) FROM road_segments;"
 # Expected: ~5,150,000 rows
+```
+
+### 3b. Import POIs (optional, enables POI overlay)
+
+The POI pipeline imports points of interest from OpenStreetMap and biker cafe data. This is separate from the road scoring pipeline and can be run at any time.
+
+```bash
+cd pipeline
+source .venv/bin/activate
+
+# Import 83,000+ UK POIs from OSM (fuel, hotels, restaurants, pubs, castles, etc.)
+python import_pois.py
+
+# Import 1,461 biker-specific cafes/spots from ukbikercafes.co.uk
+python scrape_bikercafes.py
+```
+
+Verify POIs were imported:
+
+```bash
+PGPASSWORD=motogps_dev psql -h localhost -p 5434 -U motogps -d motogps \
+  -c "SELECT source, count(*) FROM pois GROUP BY source;"
+# Expected: osm ~83,000, bikercafe ~1,461
 ```
 
 ### 4. Start the Backend
@@ -181,6 +210,11 @@ The dev server has hot-reload — changes to `.tsx`/`.ts` files reflect instantl
 7. Check the **Route Analysis** panel below route stats for anomaly detection
 8. Try the road score overlay toggle on the map (if Martin is healthy)
 9. Save a trip, then try sharing it via the Groups page
+10. Toggle the **theme** using the sun/moon icon in the top nav bar
+11. Toggle **POI categories** on the map toolbar (fuel, hotels, etc.) -- requires POI import from step 3b
+12. Open the **AI Trip Planner** panel (requires `GEMINI_API_KEY`) and try describing a trip
+13. Check **Profile > Settings** for unit system (miles/km) and fuel price configuration
+14. Try searching for a **UK postcode** (e.g., "SW1A 1AA") in the search bar
 
 ## Docker Service Details
 
@@ -263,6 +297,18 @@ FROM group_invitations gi
 JOIN adventure_groups g ON g.id = gi.group_id
 JOIN users u ON u.id = gi.invited_user_id
 WHERE gi.status = 'pending';
+
+-- POI counts by category and source
+SELECT category, source, count(*)
+FROM pois
+GROUP BY category, source
+ORDER BY category, source;
+
+-- Sample POIs near a coordinate (e.g., London)
+SELECT name, category, ST_AsText(geometry)
+FROM pois
+WHERE ST_DWithin(geometry, ST_SetSRID(ST_MakePoint(-0.1, 51.5), 4326), 0.05)
+LIMIT 10;
 ```
 
 ### Valhalla (Routing Engine)
@@ -359,6 +405,8 @@ PGPASSWORD=motogps_dev psql -h localhost -p 5434 -U motogps -d motogps \
 
 This adds: `users`, `invite_codes`, `vehicles`, `adventure_groups`, `group_members`, `group_invitations`, `group_shared_items` tables, and adds `user_id` columns to `saved_routes` and `trips`.
 
+The `pois` table is created automatically by the POI import pipeline (`import_pois.py`). It includes a PostGIS POINT geometry column with a GIST index and a B-tree index on category. Vehicle fuel fields (`fuel_type`, `consumption_value`, `consumption_unit`, `tank_size_litres`) are added by schema evolution in the init.sql.
+
 For fresh installs, `docker/postgres/init.sql` already includes all tables.
 
 After the migration, run `python -m app.cli.seed_admin` to create the first admin user and assign orphan routes/trips.
@@ -432,6 +480,8 @@ docker compose restart martin
 | `ADMIN_EMAIL` | `admin@motogps.local` | seed_admin CLI | Email for the seed admin user |
 | `ADMIN_NAME` | `Admin` | seed_admin CLI | Display name for the seed admin |
 | `ADMIN_PASSWORD` | `change-me-in-production` | seed_admin CLI | Password for the seed admin. **Change in production!** |
+| `GEMINI_API_KEY` | -- | Backend | Google Gemini API key for AI trip planner. Optional; AI panel hidden if not set. |
+| `GOOGLE_PLACES_API_KEY` | -- | Backend | Google Places API key for POI photo/rating enrichment. Optional; POIs work without it. |
 
 ## Project File Structure
 
@@ -456,7 +506,7 @@ Moto-GPS/
     requirements.txt
     app/
       main.py                  <- FastAPI app entry point (registers all routers)
-      config.py                <- Pydantic settings (reads .env, includes JWT config)
+      config.py                <- Pydantic settings (reads .env, includes JWT + AI config)
       auth/
         __init__.py
         jwt.py                 <- JWT token creation + validation (HS256)
@@ -466,31 +516,38 @@ Moto-GPS/
         __init__.py
         seed_admin.py          <- CLI: create first admin user + assign orphan trips
       api/
-        routes.py              <- POST /api/route + /api/route/analyze + /api/route/snap
+        routes.py              <- POST /api/route + /api/route/analyze + /api/route/snap + /api/route/multi-mode
         trips.py               <- Saved routes CRUD (single-day, with ownership)
         trip_planner.py        <- Multi-day trips: CRUD, auto-split, per-day GPX, import
         gpx.py                 <- GPX import/export (single route + trip ZIP)
         auth.py                <- Register, login, profile, change password
         admin.py               <- User management, invite code generation/deletion
-        vehicles.py            <- Vehicle CRUD (type, brand, model, year, picture)
+        vehicles.py            <- Vehicle CRUD (type, brand, model, year, picture, fuel data)
         groups.py              <- Adventure groups, members, invitations, sharing, user search
+        ai_planner.py          <- POST /api/ai/chat (AI trip planner endpoint)
       services/
         valhalla_client.py     <- HTTP client to Valhalla (persistent connection)
         road_scorer.py         <- PostGIS spatial scoring
-        route_analyzer.py      <- Anomaly detection (8 detectors, multiple fix options)
+        route_analyzer.py      <- Anomaly detection (8 detectors, loop-aware, multiple fix options)
         scenic_attractors.py   <- Find nearby scenic roads
         route_cache.py         <- In-memory TTL cache
+        ai_client.py           <- Gemini API wrapper with function calling
+        trip_ai_orchestrator.py <- AI conversation orchestration + tool execution
+        poi_service.py         <- POI queries (route corridor, name search)
+        google_places.py       <- Google Places API client (optional enrichment)
+        overpass_client.py     <- Overpass API client for OSM queries
       models/
         route.py               <- Pydantic models (route, analysis, trips, sharing/ownership)
         group.py               <- Pydantic models (GroupCreate, InviteUserRequest, ShareItemRequest, etc.)
-        vehicle.py             <- Pydantic models (VehicleCreate, VehicleUpdate, VehicleResponse)
+        vehicle.py             <- Pydantic models (VehicleCreate, VehicleUpdate, VehicleResponse + fuel fields)
+        ai_planner.py          <- Pydantic models (AIChatRequest, AIChatResponse, POISuggestion)
       db/
         database.py            <- SQLAlchemy async engine + session pool
         migrations/
           001_users_and_groups.sql  <- Migration: users, invite codes, vehicles, groups, sharing
 
   pipeline/
-    run_pipeline.py            <- Pipeline orchestrator
+    run_pipeline.py            <- Pipeline orchestrator (road scoring)
     download.py                <- Download OSM + SRTM data
     osm_to_postgis.py          <- Import roads to PostGIS
     curvature.py               <- Curvature scoring
@@ -498,49 +555,64 @@ Moto-GPS/
     urban_density.py           <- Urban vs rural scoring
     road_classifier.py         <- Road classification
     composite_scorer.py        <- Final weighted score
+    import_pois.py             <- Import 83k+ UK POIs from OSM PBF
+    scrape_bikercafes.py       <- Scrape 1,461 biker cafes from ukbikercafes.co.uk
+    poi_importer.py            <- POI import utilities
 
   web/
     package.json
     next.config.ts
     src/
       app/
-        layout.tsx             <- Root layout (auth provider, nav bar)
+        globals.css            <- CSS custom properties for light/dark theming
+        layout.tsx             <- Root layout (auth provider, theme provider, nav bar)
         page.tsx               <- Main page (map + panel)
         login/page.tsx         <- Login page
         register/page.tsx      <- Registration page (auto-fills invite code from URL)
         admin/page.tsx         <- Admin panel: invite codes + user management
-        profile/page.tsx       <- User profile: edit info, vehicles, change password
+        profile/page.tsx       <- User profile: edit info, vehicles, change password, settings
         groups/page.tsx        <- Adventure groups: create, manage, invitations, sharing
       components/
         auth/                  <- Authentication components
           AuthProvider.tsx     <- Auth context provider (token, user state)
+          ClientProviders.tsx  <- Wraps ThemeContext, UnitContext, AuthProvider
           ProtectedRoute.tsx   <- Route guard for authenticated pages
         nav/
-          NavBar.tsx           <- Top nav: user menu, invitation badge, admin link
+          NavBar.tsx           <- Top nav: user menu, invitation badge, admin link, theme toggle
+        ai/                    <- AI trip planner components
+          (chat panel UI)      <- Chat input, message list, suggestion cards
         map/                   <- Map, markers, route layers, score overlay, context menu
-          Map.tsx              <- MapLibre wrapper with route/day/anomaly layers
-          WaypointMarkers.tsx  <- Draggable, selectable markers with popup
+          Map.tsx              <- MapLibre wrapper with route/day/anomaly layers + theme-aware tiles
+          WaypointMarkers.tsx  <- Draggable, selectable markers with popup + reverse geocoding
           RouteLayer.tsx       <- Standard route polyline
           DayRouteLayer.tsx    <- Per-day coloured route segments
           ScoreOverlay.tsx     <- Road score colour overlay (Martin tiles)
+          POIOverlayControls.tsx <- POI category toolbar + marker rendering
           MapContextMenu.tsx   <- Right-click context menu
         route/                 <- Panel, stats, analysis, trips, preferences
           RoutePanel.tsx       <- Main sidebar (orchestrates all sub-components)
-          RouteAnalysis.tsx    <- Anomaly cards with Show + multiple fixes
-          DayPlannerPanel.tsx  <- Multi-day: auto-split, day cards, per-day GPX
+          RouteAnalysis.tsx    <- Anomaly cards with Show + fixes, severity coloring
+          DayPlannerPanel.tsx  <- Multi-day: auto-split, day cards, per-day route types,
+                                  fuel cost, overnight/fuel suggestions
           SavedTrips.tsx       <- Trip list: ownership badges, group sharing, clone
-          WaypointList.tsx     <- Search + drag-and-drop waypoint list
+          WaypointList.tsx     <- Search + drag-and-drop + UK postcode support
           RouteTypeSelector.tsx<- Scenic/balanced/fast presets
-          RouteStats.tsx       <- Distance, time, score, turn-by-turn
+          RouteStats.tsx       <- Distance, time, score, turn-by-turn, per-day filtering
           SaveTripDialog.tsx   <- Name + description modal
+      contexts/
+        ThemeContext.tsx        <- Light/dark theme context with localStorage persistence
+        UnitContext.tsx         <- Miles/km unit system context
       lib/
-        api.ts                 <- API client (routes, trips, multi-day, GPX, snap)
+        api.ts                 <- API client (routes, multi-mode, trips, GPX, snap, POIs, settings)
         authApi.ts             <- Auth API client (register, login, profile, password)
         adminApi.ts            <- Admin API client (users, invite codes)
-        types.ts               <- TypeScript types (mirrors backend models + auth/group types)
+        aiApi.ts               <- AI planner API client (chat)
+        types.ts               <- TypeScript types (mirrors backend models + auth/group/AI types)
         geo.ts                 <- Geospatial utilities (findInsertIndex)
+        fuelCalc.ts            <- Fuel cost estimation + stops calculation
       hooks/
         useAuth.ts             <- Auth state (login, logout, token, user profile)
-        useRoute.ts            <- Route state (waypoints, routes, stale indicator, analysis)
-        useTripPlanner.ts      <- Multi-day state (day overlays, overnight stops, selected day)
+        useRoute.ts            <- Route state (waypoints, routes, stale indicator, analysis, multi-mode)
+        useTripPlanner.ts      <- Multi-day state (day overlays, per-day route types, overnight stops)
+        useAIPlanner.ts        <- AI planner state (conversation, message sending, response handling)
 ```

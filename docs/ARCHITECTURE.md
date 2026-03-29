@@ -2,13 +2,14 @@
 
 ## System Overview
 
-Moto-GPS is a motorcycle navigation platform that uses context-aware routing. Rather than simple "avoid motorways" rules, it scores every road segment on 5 dimensions and uses a Route-Score-Rerank strategy to find genuinely good motorcycle routes. It includes invite-only user management, adventure groups, and collaborative trip sharing.
+Moto-GPS is a motorcycle navigation platform that uses context-aware routing. Rather than simple "avoid motorways" rules, it scores every road segment on 5 dimensions and uses a Route-Score-Rerank strategy to find genuinely good motorcycle routes. It includes invite-only user management, adventure groups, collaborative trip sharing, an AI trip planner, and a POI overlay system.
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │                          User (Browser)                          │
 │           Next.js 16 + MapLibre GL + React 19                    │
 │           Port 3001                                              │
+│           ThemeContext (light/dark) · UnitContext (mi/km)         │
 │                                                                  │
 │  /login  /register  /admin  /profile  /groups  / (map+planner)  │
 └────────────────────────────────┬─────────────────────────────────┘
@@ -23,23 +24,36 @@ Moto-GPS is a motorcycle navigation platform that uses context-aware routing. Ra
 │  │  Planner  │  │  Scorer  │  │ Analyzer │  │  Cache         │  │
 │  └─────┬────┘  └────┬─────┘  └────┬─────┘  └────────────────┘  │
 │        │             │             │                              │
-│  ┌─────┴─────────────┴─────────────┴──────────────────────────┐  │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────────┐  │
+│  │  AI Trip │  │  POI     │  │  Fuel    │  │  Google        │  │
+│  │  Planner │  │  Service │  │  Calc    │  │  Places        │  │
+│  │ (Gemini) │  │ (PostGIS)│  │          │  │  (optional)    │  │
+│  └─────┬────┘  └────┬─────┘  └──────────┘  └────────────────┘  │
+│        │             │                                           │
+│  ┌─────┴─────────────┴────────────────────────────────────────┐  │
 │  │  Auth (JWT) · Admin · Groups · Vehicles · Sharing          │  │
 │  └────────────────────────┬───────────────────────────────────┘  │
 │                           │                                      │
-└───────────┬───────────────┼──────────────────────────────────────┘
-            │               │
-    ┌───────▼──┐   ┌────────▼────────────┐   ┌────────────────┐
-    │ Valhalla │   │     PostGIS          │   │     Martin     │
-    │ (routes) │   │  (road scores,       │   │ (vector tiles) │
-    │ :8010    │   │   users, groups,     │   │ :3002          │
-    └──────────┘   │   trips, sharing)    │   └────────┬───────┘
-                   │  :5434               │            │
-                   └──────────────────────┘    MVT tiles│
-                                              ┌────────▼───────┐
-                                              │  MapLibre GL    │
-                                              │ (score overlay) │
-                                              └────────────────┘
+└───────────┬───────────────┼───────────────┬──────────────────────┘
+            │               │               │
+    ┌───────▼──┐   ┌────────▼────────────┐  │  ┌────────────────┐
+    │ Valhalla │   │     PostGIS          │  │  │     Martin     │
+    │ (routes) │   │  (road scores,       │  │  │ (vector tiles) │
+    │ :8010    │   │   users, groups,     │  │  │ :3002          │
+    └──────────┘   │   trips, sharing,    │  │  └────────┬───────┘
+                   │   POIs: 83k+ OSM +   │  │           │
+                   │   1.4k biker cafes)  │  │   MVT tiles│
+                   │  :5434               │  │  ┌────────▼───────┐
+                   └──────────────────────┘  │  │  MapLibre GL    │
+                                             │  │ (score overlay  │
+                   ┌─────────────────────────┘  │  + POI markers) │
+                   │                            └────────────────┘
+           ┌───────▼────────┐
+           │  Gemini API    │
+           │  (AI planner   │
+           │   with tool    │
+           │   calling)     │
+           └────────────────┘
 ```
 
 ## User Management & Authentication
@@ -238,6 +252,8 @@ Each anomaly includes **multiple fix options** (e.g., "Move waypoint" + "Remove 
 - Click any fix option to apply it
 - Fixes update the waypoints and trigger a manual recalculate
 
+**Loop route detection**: The backtracking detector now identifies loop routes (where start and end are within a threshold distance) and suppresses false backtracking alerts on return legs. Anomaly highlights are automatically cleared on route recalculation. Severity levels use color-coded indicators (red for issues, amber for warnings, blue for suggestions).
+
 ## Multi-Day Trip Planning
 
 Multi-day trips are planned as **one continuous route** with **day overlays** -- lenses that define where each day starts and ends.
@@ -263,6 +279,12 @@ Day overlays (lenses into the master route):
 
 **Auto-split algorithm:** Given a target daily distance (e.g., 400km), walks through legs accumulating distance and creates day boundaries at the nearest waypoint to each target. Prefers labelled waypoints as boundaries.
 
+**Per-day route types:** Each day can override the trip's default route type (scenic/balanced/fast). Day cards show an "Unsync" button to set a per-day type and "Sync" to return to the trip default. When any day has a custom type, `handleCalculateRoute` auto-detects this and uses the `POST /api/route/multi-mode` endpoint, which plans each day's segment independently with its own costing parameters and stitches the results together.
+
+**Auto-suggest on day split:** When days are split, the system automatically searches for the nearest hotel/B&B near overnight stop waypoints and suggests fuel stops based on the vehicle's tank range. Suggestions appear in day cards with a "+ Route" button to add them as waypoints.
+
+**Per-day route stats:** When a day is selected, `RouteStats` shows that day's distance, time, and moto score. Key roads and turn-by-turn directions are filtered to the selected day. A "Showing Day X" indicator is shown with a hint to select Full Trip for aggregate stats.
+
 **Database:** Multi-day trips are stored in the `trips` table (separate from `saved_routes`). Day overlays are stored as a JSONB array of `{day, name, description, start_waypoint_idx, end_waypoint_idx}`.
 
 ## Map Interaction
@@ -283,6 +305,14 @@ Right-clicking on the map shows:
 - "Recalculate route"
 - "Delete waypoint N" -- if right-clicked near a waypoint
 
+### Reverse Geocoding
+
+When a user clicks the map to add a waypoint, the coordinate is reverse-geocoded via Nominatim to produce a human-readable label (e.g., "A5, Weedon Bec"). Waypoints show expandable details with coordinates and a copy button.
+
+### UK Postcode Search
+
+The search bar recognizes UK postcodes (regex match) and queries the postcodes.io API (free, no key required). Results are combined with Nominatim geocoding and local POI name search for a unified search experience.
+
 ### Manual Recalculate
 
 Route does NOT auto-recalculate on every change. Instead:
@@ -290,6 +320,152 @@ Route does NOT auto-recalculate on every change. Instead:
 - The "Plan Route" button turns amber: "Recalculate"
 - Click once to recalculate with all changes applied
 - Map zoom/position is preserved during edits
+
+## AI Trip Planner
+
+The AI trip planner uses Google Gemini with function calling to provide conversational trip planning.
+
+```
+User types message in chat panel
+        │
+        ▼
+POST /api/ai/chat
+        │
+        ▼
+trip_ai_orchestrator.py
+        │
+        ├── Build system prompt (motorcycle-specific knowledge,
+        │   UK geography, riding preferences)
+        │
+        ├── Send to Gemini API with tool definitions
+        │
+        ├── Handle function calls:
+        │   ├── suggest_trip_plan → generates waypoints + day splits
+        │   └── search_nearby_pois → batch POI search along route
+        │
+        └── Return structured response:
+            ├── reply (natural language)
+            ├── suggested_waypoints
+            ├── suggested_day_splits
+            └── poi_suggestions (shown as map markers)
+```
+
+**Backend components:**
+- `ai_client.py` -- Gemini API wrapper with function calling support
+- `trip_ai_orchestrator.py` -- Orchestrates conversation, tool execution, and response assembly
+- `ai_planner.py` (API router) -- `POST /api/ai/chat` endpoint
+- `ai_planner.py` (models) -- Pydantic models for AI request/response
+
+**Frontend components:**
+- `useAIPlanner.ts` hook -- manages conversation state, sends messages, handles responses
+- `web/src/components/ai/` -- AI chat panel UI components
+- `aiApi.ts` -- API client for AI endpoints
+
+## POI Overlay System
+
+The POI system provides 83,000+ UK points of interest from OpenStreetMap plus 1,461 biker-specific cafes/spots.
+
+### Data Pipeline
+
+```
+OSM PBF (Great Britain)
+    │
+    ▼
+pipeline/import_pois.py ─── Extract POI nodes by amenity/tourism/historic tags
+    │                        → pois table (83k+ rows, PostGIS POINT geometry)
+    │
+pipeline/scrape_bikercafes.py ─── Scrape ukbikercafes.co.uk
+                                   → pois table (1,461 biker spots, category="biker_spot")
+```
+
+### Query Architecture
+
+- **Route corridor search** (`GET /api/pois/route`): Uses `ST_DWithin` to find POIs within a configurable radius of the route geometry. Categories are filterable.
+- **Name search** (`GET /api/poi-search`): Full-text search on POI names, combined with Nominatim geocoding and UK postcode lookup.
+- **Google Places enrichment**: On POI click, optionally fetches photos and ratings from Google Places API (requires `GOOGLE_PLACES_API_KEY`).
+
+### Frontend Integration
+
+- `POIOverlayControls.tsx` -- Compact toolbar on the map with category toggles
+- POI markers rendered on the map with click popups showing details + "Add as waypoint" action
+- Categories: fuel, hotel, restaurant, pub, castle, viewpoint, museum, cafe, campsite, attraction, biker_spot
+
+### Database: pois table
+
+| Column | Type | Purpose |
+|--------|------|---------|
+| `id` | BIGSERIAL | Primary key |
+| `name` | TEXT | POI name |
+| `category` | TEXT | Category (fuel, hotel, biker_spot, etc.) |
+| `geometry` | POINT(4326) | Location |
+| `tags` | JSONB | OSM tags or scraped metadata |
+| `source` | TEXT | `"osm"` or `"bikercafe"` |
+
+**Indexes**: GIST on geometry, B-tree on category.
+
+## Theme System
+
+The application supports light and dark themes via CSS variables and React context.
+
+```
+ThemeContext (React context)
+    │
+    ├── Reads initial theme from localStorage ("theme" key)
+    ├── Falls back to system preference (prefers-color-scheme)
+    ├── Provides theme + toggleTheme to all components
+    │
+    ▼
+globals.css (CSS custom properties)
+    │
+    ├── [data-theme="light"]: --page, --surface, --text-primary, --text-muted, --border, etc.
+    ├── [data-theme="dark"]:  dark variants of all tokens
+    │
+    ▼
+Tailwind classes use semantic tokens:
+    bg-page, bg-surface, text-primary, text-muted, border-border
+
+MapTiler tiles:
+    light → streets-v2
+    dark  → streets-v2-dark
+```
+
+The theme toggle (sun/moon icon) is in the TopNav bar. All components use semantic color tokens, so theme switching is instantaneous with no flash.
+
+## Fuel Cost Estimation
+
+Fuel cost calculation uses vehicle data and user-configured fuel prices.
+
+```
+Vehicle (fuel_type, consumption_value, consumption_unit, tank_size_litres)
+    +
+User Settings (fuel_price_per_litre, electricity_price_per_kwh)
+    +
+Route Data (distance per day, total distance)
+    │
+    ▼
+fuelCalc.ts
+    │
+    ├── Convert consumption to litres per km
+    ├── Calculate fuel needed per day and full trip
+    ├── Calculate fuel cost from price settings
+    ├── Calculate fuel stops needed from tank range
+    │
+    ▼
+Display in day cards:
+    - Fuel cost per day
+    - Full trip fuel cost
+    - Number of fuel stops needed
+```
+
+## Unit System
+
+The `UnitContext` provides a miles/km toggle persisted in user settings.
+
+- Default: miles (UK-focused platform)
+- Toggle location: Profile > Settings
+- All distance displays use a `formatDistance()` helper that reads from context
+- Day target slider shows both km and miles simultaneously
+- Backend stores all distances in meters; conversion is frontend-only
 
 ## Save / Update Flow
 
@@ -359,6 +535,10 @@ The core data table. Each row is a single OSM way segment.
 | `year` | INTEGER | Model year |
 | `picture_base64` | TEXT | Base64-encoded photo (max ~2MB) |
 | `is_default` | BOOLEAN | Default vehicle for the user |
+| `fuel_type` | TEXT | petrol, diesel, or electric |
+| `consumption_value` | REAL | Fuel consumption value |
+| `consumption_unit` | TEXT | mpg or l_per_100km |
+| `tank_size_litres` | REAL | Tank capacity in litres |
 
 ### adventure_groups
 
@@ -448,46 +628,63 @@ Default scoring weights (legacy single-user table, pre-auth).
 Multi-page app with authentication, admin panel, user profile, groups, and the main map planner:
 
 ```
-layout.tsx (root layout — auth provider, nav bar)
+layout.tsx (root layout — auth provider, theme provider, nav bar)
 │
 ├── /login → LoginPage
 ├── /register → RegisterPage (auto-fills invite code from URL ?code=)
 ├── /admin → AdminPage (invite codes + user management, admin only)
-├── /profile → ProfilePage (edit profile, vehicles, change password)
+├── /profile → ProfilePage (edit profile, vehicles, change password, settings)
 ├── /groups → GroupsPage (adventure groups, invitations, shared items)
 │
 └── / → page.tsx (main map + route planner)
-    ├── NavBar.tsx (user menu, invitation badge, admin link)
+    ├── NavBar.tsx (user menu, invitation badge, admin link, theme toggle)
     │
     ├── Map.tsx (MapLibre GL)
-    │   ├── WaypointMarkers.tsx (draggable, selectable, snap-to-road, popup)
+    │   ├── WaypointMarkers.tsx (draggable, selectable, snap-to-road, popup,
+    │   │                         reverse-geocoded labels, expandable details)
     │   ├── RouteLayer.tsx (polyline renderer, multi-route)
     │   ├── DayRouteLayer.tsx (per-day coloured route segments)
     │   ├── ScoreOverlay.tsx (colour-coded road quality from Martin tiles)
+    │   ├── POIOverlayControls.tsx (category toggle toolbar, POI markers + popups)
     │   └── MapContextMenu.tsx (right-click: add/insert/delete/recalculate)
+    │
+    ├── AI Chat Panel (✨ AI Trip Planner)
+    │   └── components/ai/ (chat input, message list, suggestion cards)
     │
     ├── RoutePanel.tsx (side panel / bottom sheet)
     │   ├── SavedTrips.tsx (load/delete, multi-day badges, per-trip GPX export,
     │   │                    group sharing, ownership badges, clone button)
-    │   ├── WaypointList.tsx (search + drag-and-drop list)
+    │   ├── WaypointList.tsx (search + drag-and-drop list, UK postcode support)
     │   ├── RouteTypeSelector.tsx (scenic/balanced/fast + custom settings)
-    │   ├── RouteStats.tsx (distance, time, score, turn-by-turn)
-    │   ├── RouteAnalysis.tsx (anomaly cards + Show + multiple fix buttons)
-    │   └── DayPlannerPanel.tsx (multi-day: auto-split, day cards, per-day export/import)
+    │   ├── RouteStats.tsx (distance, time, score, turn-by-turn, per-day filtering)
+    │   ├── RouteAnalysis.tsx (anomaly cards + Show + multiple fix buttons,
+    │   │                       severity coloring, loop-aware detection)
+    │   └── DayPlannerPanel.tsx (multi-day: auto-split, day cards, per-day route types,
+    │                             unsync/sync, fuel cost, overnight/fuel suggestions)
     │
     └── SaveTripDialog.tsx (save route modal)
 ```
 
+**Contexts**:
+- `ThemeContext` -- light/dark theme with localStorage persistence; provides `theme` + `toggleTheme`
+- `UnitContext` -- miles/km unit system; provides `unit` + `toggleUnit`
+
 **State management**:
 - `useAuth` hook -- login state, token storage, user profile, logout
-- `useRoute` hook -- waypoints, routes, analysis, preferences, stale indicator. Does NOT auto-recalculate; user triggers manually.
-- `useTripPlanner` hook -- day overlays, selected day, daily target, overnight stops. Reads from `useRoute`'s state (never duplicates it).
+- `useRoute` hook -- waypoints, routes, analysis, preferences, stale indicator. Does NOT auto-recalculate; user triggers manually. Auto-detects per-day route types and uses multi-mode endpoint when needed.
+- `useTripPlanner` hook -- day overlays, selected day, daily target, overnight stops. Reads from `useRoute`'s state (never duplicates it). Per-day route type overrides.
+- `useAIPlanner` hook -- AI conversation state, message history, sends messages to `/api/ai/chat`, handles structured responses (waypoints, day splits, POIs)
 - Loaded trip tracking -- `loadedTripId`, `loadedTripName`, `loadedTripIsMultiday` for in-place save vs save-as-new.
 
 **API clients**:
-- `api.ts` -- route planning, trips, multi-day, GPX, snap-to-road
+- `api.ts` -- route planning (including multi-mode), trips, multi-day, GPX, snap-to-road, POIs, settings
 - `authApi.ts` -- register, login, profile, password
 - `adminApi.ts` -- user management, invite codes
+- `aiApi.ts` -- AI trip planner chat
+
+**Utilities**:
+- `fuelCalc.ts` -- fuel cost estimation, stops calculation, unit conversion
+- `geo.ts` -- geospatial utilities (findInsertIndex, distance calculations)
 
 ## Security Design Decisions
 
@@ -545,4 +742,32 @@ layout.tsx (root layout — auth provider, nav bar)
 6. Frontend: Shared trips display with "shared - edit" or "shared - view" badge
 7. Editors can load and edit the shared trip (saves update the original)
 8. Viewers can view, export GPX, or clone to their own trips
+```
+
+## Data Flow: AI Trip Planning
+
+```
+1. User opens AI Trip Planner panel and types a message
+2. Frontend: POST /api/ai/chat {message, conversation_history, current_waypoints}
+3. Backend: trip_ai_orchestrator builds system prompt with motorcycle knowledge
+4. Backend: Sends conversation to Gemini API with tool definitions
+5. Gemini may call suggest_trip_plan → orchestrator generates waypoints + day splits
+6. Gemini may call search_nearby_pois → orchestrator queries PostGIS POI table
+7. Backend: Assembles structured response (reply + waypoints + POIs)
+8. Frontend: Displays AI reply in chat, shows POI markers on map
+9. User can click "Add as waypoint" on any POI suggestion
+10. User can accept suggested trip plan to populate route planner
+```
+
+## Data Flow: POI Route Corridor Search
+
+```
+1. User toggles POI categories on the map toolbar
+2. Frontend: GET /api/pois/route?coordinates=...&categories=fuel,hotel&radius_m=5000
+3. Backend: Builds route geometry from coordinate array
+4. Backend: ST_DWithin query against pois table with category filter
+5. Backend: Returns matching POIs with name, category, coordinates, tags
+6. Frontend: Renders POI markers on map with category icons
+7. User clicks marker → popup with details + optional Google Places enrichment
+8. User clicks "Add as waypoint" → inserts POI location into waypoint list
 ```

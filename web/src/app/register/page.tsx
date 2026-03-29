@@ -9,8 +9,8 @@ export default function RegisterPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex items-center justify-center h-screen bg-zinc-950">
-          <div className="text-zinc-500 text-sm">Loading...</div>
+        <div className="flex items-center justify-center h-screen bg-page">
+          <div className="text-muted text-sm">Loading...</div>
         </div>
       }
     >
@@ -75,20 +75,20 @@ function RegisterForm() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-950 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-page px-4">
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-zinc-100">🏍️ Moto-GPS</h1>
-          <p className="text-sm text-zinc-500 mt-1">Create your account</p>
+          <h1 className="text-2xl font-bold text-primary">🏍️ Moto-GPS</h1>
+          <p className="text-sm text-muted mt-1">Create your account</p>
         </div>
 
         {/* Card */}
         <form
           onSubmit={handleSubmit}
-          className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 flex flex-col gap-4"
+          className="bg-surface border border-border rounded-lg p-6 flex flex-col gap-4"
         >
-          <h2 className="text-lg font-semibold text-zinc-100">Register</h2>
+          <h2 className="text-lg font-semibold text-primary">Register</h2>
 
           {error && (
             <p className="text-sm text-red-400 bg-red-950/50 rounded-md px-3 py-2">
@@ -97,7 +97,7 @@ function RegisterForm() {
           )}
 
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="code" className="text-xs text-zinc-400">
+            <label htmlFor="code" className="text-xs text-muted">
               Invite Code
             </label>
             <input
@@ -107,13 +107,13 @@ function RegisterForm() {
               onChange={(e) => setCode(e.target.value)}
               required
               autoFocus
-              className="bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 font-mono placeholder:text-zinc-600 focus:outline-none focus:border-blue-600"
+              className="bg-surface-alt border border-border rounded-md px-3 py-2 text-sm text-primary font-mono placeholder:text-muted focus:outline-none focus:border-border-focus"
               placeholder="Enter invite code"
             />
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="name" className="text-xs text-zinc-400">
+            <label htmlFor="name" className="text-xs text-muted">
               Name
             </label>
             <input
@@ -122,13 +122,13 @@ function RegisterForm() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              className="bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-blue-600"
+              className="bg-surface-alt border border-border rounded-md px-3 py-2 text-sm text-primary placeholder:text-muted focus:outline-none focus:border-border-focus"
               placeholder="Your name"
             />
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="email" className="text-xs text-zinc-400">
+            <label htmlFor="email" className="text-xs text-muted">
               Email
             </label>
             <input
@@ -137,13 +137,13 @@ function RegisterForm() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-blue-600"
+              className="bg-surface-alt border border-border rounded-md px-3 py-2 text-sm text-primary placeholder:text-muted focus:outline-none focus:border-border-focus"
               placeholder="you@example.com"
             />
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="password" className="text-xs text-zinc-400">
+            <label htmlFor="password" className="text-xs text-muted">
               Password
             </label>
             <input
@@ -153,13 +153,13 @@ function RegisterForm() {
               onChange={(e) => setPassword(e.target.value)}
               required
               minLength={8}
-              className="bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-blue-600"
+              className="bg-surface-alt border border-border rounded-md px-3 py-2 text-sm text-primary placeholder:text-muted focus:outline-none focus:border-border-focus"
               placeholder="At least 8 characters"
             />
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <label htmlFor="confirmPassword" className="text-xs text-zinc-400">
+            <label htmlFor="confirmPassword" className="text-xs text-muted">
               Confirm Password
             </label>
             <input
@@ -168,7 +168,7 @@ function RegisterForm() {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               required
-              className="bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-blue-600"
+              className="bg-surface-alt border border-border rounded-md px-3 py-2 text-sm text-primary placeholder:text-muted focus:outline-none focus:border-border-focus"
               placeholder="••••••••"
             />
           </div>
@@ -176,12 +176,12 @@ function RegisterForm() {
           <button
             type="submit"
             disabled={loading || !code || !name || !email || !password}
-            className="bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white font-medium py-2.5 rounded-md transition-colors text-sm mt-2"
+            className="bg-blue-600 hover:bg-blue-500 disabled:bg-surface-hover disabled:text-muted text-white font-medium py-2.5 rounded-md transition-colors text-sm mt-2"
           >
             {loading ? "Creating account..." : "Create Account"}
           </button>
 
-          <p className="text-xs text-zinc-500 text-center mt-2">
+          <p className="text-xs text-muted text-center mt-2">
             Already have an account?{" "}
             <Link href="/login" className="text-blue-400 hover:text-blue-300">
               Sign in

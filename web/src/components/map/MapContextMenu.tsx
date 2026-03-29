@@ -48,10 +48,10 @@ export function MapContextMenu({ x, y, actions, onClose }: MapContextMenuProps) 
   };
 
   return (
-    <div ref={ref} style={style} className="min-w-[180px] rounded-lg bg-zinc-800 border border-zinc-700 shadow-xl py-1 animate-in fade-in zoom-in-95 duration-100">
+    <div ref={ref} style={style} className="min-w-[180px] rounded-lg bg-surface-alt border border-border shadow-xl py-1 animate-in fade-in zoom-in-95 duration-100">
       {actions.map((action, i) => {
         if (action.divider) {
-          return <div key={i} className="border-t border-zinc-700 my-1" />;
+          return <div key={i} className="border-t border-border my-1" />;
         }
         return (
           <button
@@ -67,7 +67,7 @@ export function MapContextMenu({ x, y, actions, onClose }: MapContextMenuProps) 
               w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left transition-colors
               ${action.disabled ? "text-zinc-600 cursor-not-allowed" : ""}
               ${action.danger && !action.disabled ? "text-red-400 hover:bg-red-950/40" : ""}
-              ${!action.danger && !action.disabled ? "text-zinc-200 hover:bg-zinc-700" : ""}
+              ${!action.danger && !action.disabled ? "text-secondary hover:bg-surface-hover" : ""}
             `}
           >
             {action.icon && <span className="text-xs w-4 text-center">{action.icon}</span>}

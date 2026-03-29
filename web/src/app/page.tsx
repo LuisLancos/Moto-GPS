@@ -1,11 +1,14 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthContext } from "@/components/auth/AuthProvider";
 import { useRoute } from "@/hooks/useRoute";
+import type { VehicleFuelData } from "@/lib/fuelCalc";
+import { authFetch } from "@/lib/authApi";
 import { useTripPlanner } from "@/hooks/useTripPlanner";
+import { useAIPlanner } from "@/hooks/useAIPlanner";
 import { RoutePanel } from "@/components/route/RoutePanel";
 import { SaveTripDialog } from "@/components/route/SaveTripDialog";
 import { TopNav } from "@/components/nav/TopNav";
@@ -14,16 +17,19 @@ import {
   listMultiDayTrips, saveMultiDayTrip, updateMultiDayTrip, deleteMultiDayTrip, getMultiDayTrip,
   snapToRoad, exportDayGpxUrl, importDayIntoTrip,
   listMyGroups,
+  fetchRoutePOIs,
+  reverseGeocode,
 } from "@/lib/api";
+import { POIOverlayControls, DEFAULT_POI_CATEGORIES, DEFAULT_SELECTED, type POICategoryDef } from "@/components/map/POIOverlayControls";
 import type { UserGroup } from "@/lib/api";
 import { findInsertIndex } from "@/lib/geo";
 import { storableRouteType } from "@/lib/formatters";
-import type { TripSummary, RouteType, Waypoint } from "@/lib/types";
+import type { TripSummary, RouteType, Waypoint, POIResult } from "@/lib/types";
 
 const Map = dynamic(() => import("@/components/map/Map").then((m) => m.Map), {
   ssr: false,
   loading: () => (
-    <div className="flex items-center justify-center h-full bg-zinc-900 text-zinc-500">
+    <div className="flex items-center justify-center h-full bg-surface text-muted">
       Loading map...
     </div>
   ),
@@ -35,7 +41,136 @@ export default function Home() {
 
   const route = useRoute();
   const selectedRoute = route.routes[route.selectedRouteIndex] || null;
-  const tripPlanner = useTripPlanner(route.waypoints, selectedRoute);
+
+  // ---------- Default vehicle for fuel estimates (must be before useTripPlanner) ----------
+  const [defaultVehicle, setDefaultVehicle] = useState<VehicleFuelData | null>(null);
+
+  const tripPlanner = useTripPlanner(route.waypoints, selectedRoute, defaultVehicle, route.insertWaypoint);
+
+  // Set daily target from user preferences based on route type
+  useEffect(() => {
+    const prefs = user?.preferences;
+    if (!prefs) return;
+    const milesToMeters = 1609.344;
+    let targetMiles: number;
+    switch (route.routeType) {
+      case "scenic": targetMiles = prefs.daily_miles_scenic || 150; break;
+      case "fast": targetMiles = prefs.daily_miles_fast || 250; break;
+      default: targetMiles = prefs.daily_miles_balanced || 200; break;
+    }
+    tripPlanner.setDailyTargetM(Math.round(targetMiles * milesToMeters));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [route.routeType, user?.preferences]);
+
+  const aiPlanner = useAIPlanner();
+  const [aiAppliedIdx, setAiAppliedIdx] = useState<number | null>(null);
+  const [mapPOIs, setMapPOIs] = useState<POIResult[]>([]);
+
+  // ---------- Route POI overlay ----------
+  const [poiCategoryDefs, setPoiCategoryDefs] = useState<POICategoryDef[]>([]);
+  const [poiCategories, setPoiCategories] = useState<Set<string>>(() => {
+    // Will be overridden by user preferences when they load
+    return DEFAULT_SELECTED;
+  });
+  const [routePOIs, setRoutePOIs] = useState<POIResult[]>([]);
+  const [poiLoading, setPoiLoading] = useState(false);
+  const poiFetchRef = useRef<string | null>(null);
+
+  // Load dynamic POI categories from API
+  useEffect(() => {
+    authFetch("/api/poi-categories").then(async (res) => {
+      if (res.ok) {
+        const cats = await res.json();
+        if (cats.length > 0) setPoiCategoryDefs(cats);
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Load user's preferred default POI categories
+  useEffect(() => {
+    const prefs = user?.preferences;
+    if (prefs?.default_poi_categories?.length) {
+      setPoiCategories(new Set(prefs.default_poi_categories));
+    }
+  }, [user?.preferences]);
+
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      try {
+        const res = await authFetch("/api/vehicles");
+        if (res.ok) {
+          const vehicles = await res.json();
+          const def = vehicles.find((v: { is_default: boolean }) => v.is_default) || vehicles[0] || null;
+          if (def && def.consumption) {
+            setDefaultVehicle({
+              fuel_type: def.fuel_type || "petrol",
+              consumption: def.consumption,
+              consumption_unit: def.consumption_unit || "mpg",
+              tank_capacity: def.tank_capacity,
+              fuel_cost_per_unit: def.fuel_cost_per_unit,
+              fuel_cost_currency: def.fuel_cost_currency || "GBP",
+            });
+          }
+        }
+      } catch {
+        // silent — fuel estimates are optional
+      }
+    })();
+  }, [user]);
+
+  // Fetch POIs when first category toggled on (or route changes with categories active)
+  const poiCatCount = poiCategories.size;
+  const selectedRouteForPOI = route.routes[route.selectedRouteIndex] ?? null;
+  const selectedRouteDistForPOI = selectedRouteForPOI?.distance_m ?? 0;
+
+  // Simple: fetch all active categories whenever toggles or route change
+  // PostGIS is fast (~70ms) so no need for incremental caching
+  const poiCatsKey = Array.from(poiCategories).sort().join(",");
+
+  useEffect(() => {
+    if (!selectedRouteForPOI?.shape?.length || poiCategories.size === 0) {
+      setRoutePOIs([]);
+      return;
+    }
+
+    const cats = Array.from(poiCategories);
+    setPoiLoading(true);
+
+    fetchRoutePOIs(selectedRouteForPOI.shape, cats)
+      .then((pois) => {
+        console.log(`[POI] Fetched ${pois.length} POIs for [${cats.join(",")}]`);
+        setRoutePOIs(pois);
+      })
+      .catch((err) => {
+        console.error("[POI] Fetch failed:", err);
+        setRoutePOIs([]);
+      })
+      .finally(() => setPoiLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [poiCatsKey, selectedRouteDistForPOI]);
+
+  const handleTogglePOICategory = useCallback((cat: string) => {
+    setPoiCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(cat)) next.delete(cat);
+      else next.add(cat);
+      return next;
+    });
+  }, []);
+
+  // Combine AI POIs + route overlay POIs
+  // Merge: AI POIs + route overlay POIs + day suggestion POIs (hotels + fuel)
+  const suggestionPOIs = useMemo(() => {
+    const pois: import("@/lib/types").POIResult[] = [];
+    for (const s of tripPlanner.daySuggestions) {
+      if (s.hotel) pois.push(s.hotel);
+      for (const f of s.fuel_stops) pois.push(f);
+    }
+    return pois;
+  }, [tripPlanner.daySuggestions]);
+
+  const allMapPOIs = [...mapPOIs, ...routePOIs, ...suggestionPOIs];
 
   // ---------- Saved Trips state ----------
   const [trips, setTrips] = useState<TripSummary[]>([]);
@@ -388,19 +523,36 @@ export default function Home() {
     );
   }
 
+  // Clear anomaly highlight when analysis changes (route recalculated) or analysis is cleared
+  useEffect(() => {
+    setNavigatedAnomaly(null);
+    setHighlightedAnomalyIndex(null);
+  }, [route.analysis]);
+
   // ---------- Smart map click: insert at closest segment when route exists ----------
   const handleSmartMapClick = useCallback(
     (wp: Waypoint) => {
+      // Add waypoint immediately with coordinates as label
+      const tempLabel = wp.label || `${wp.lat.toFixed(4)}, ${wp.lng.toFixed(4)}`;
+      const wpWithLabel = { ...wp, label: tempLabel };
+
       if (route.routes.length > 0 && route.waypoints.length >= 2) {
-        // Route exists — insert at the closest segment, not at the end
-        const insertAt = findInsertIndex(wp, route.waypoints);
-        route.insertWaypoint(wp, insertAt);
+        const insertAt = findInsertIndex(wpWithLabel, route.waypoints);
+        route.insertWaypoint(wpWithLabel, insertAt);
       } else {
-        // No route yet — append as usual
-        route.addWaypoint(wp);
+        route.addWaypoint(wpWithLabel);
+      }
+
+      // Reverse geocode in background to get a human-readable label
+      if (!wp.label) {
+        reverseGeocode(wp.lat, wp.lng).then((label) => {
+          if (label && label !== tempLabel) {
+            route.updateWaypointLabel(wp.lat, wp.lng, label);
+          }
+        });
       }
     },
-    [route.routes.length, route.waypoints, route.insertWaypoint, route.addWaypoint],
+    [route.routes.length, route.waypoints, route.insertWaypoint, route.addWaypoint, route.updateWaypointLabel],
   );
 
   // ---------- Route insert (click directly on route line) ----------
@@ -412,11 +564,73 @@ export default function Home() {
     [route.waypoints, route.insertWaypoint]
   );
 
-  // Auth gate (after all hooks)
+  // AI planner: apply suggestions to route (must be before early returns — Rules of Hooks)
+  const handleApplyAISuggestions = useCallback(async () => {
+    const s = aiPlanner.applySuggestions();
+    if (!s) return;
+
+    // Mark applied in chat
+    const lastAssistantIdx = aiPlanner.messages.findLastIndex((m) => m.role === "assistant");
+    setAiAppliedIdx(lastAssistantIdx >= 0 ? lastAssistantIdx : null);
+
+    // Helper to apply day splits
+    const applyDaySplits = () => {
+      if (s.day_splits.length > 0) {
+        tripPlanner.setIsMultiDay(true);
+        tripPlanner.loadDayOverlays(s.day_splits.map((d) => ({
+          day: d.day,
+          name: d.name,
+          description: d.description,
+          start_waypoint_idx: d.start_waypoint_idx,
+          end_waypoint_idx: d.end_waypoint_idx,
+        })));
+      }
+    };
+
+    // Mode 1: AI suggested new waypoints → replace route, then apply days
+    if (s.waypoints.length > 0) {
+      route.clearWaypoints();
+      for (const wp of s.waypoints) {
+        route.addWaypoint({ lat: wp.lat, lng: wp.lng, label: wp.label });
+      }
+      // Wait for route to finish calculating before applying day splits
+      setTimeout(async () => {
+        await route.calculateRoute();
+        // Now the route exists — safe to apply day overlays
+        applyDaySplits();
+      }, 200);
+    } else {
+      // Mode 2: No new waypoints — AI is adjusting an existing route
+      // Apply day splits directly (route already exists)
+      applyDaySplits();
+    }
+
+    // Add any POIs to the map immediately (both modes)
+    if (s.pois.length > 0) {
+      setMapPOIs((prev) => {
+        const existing = new Set(prev.map((p) => `${p.name}|${p.category}`));
+        const newPois = s.pois.filter((p) => !existing.has(`${p.name}|${p.category}`));
+        return [...prev, ...newPois];
+      });
+    }
+  }, [aiPlanner, route, tripPlanner]);
+
+  // Route calculation — uses multi-mode when days have different route types,
+  // otherwise calculates as a single full route.
+  const handleCalculateRoute = useCallback(() => {
+    if (tripPlanner.hasPerDayRouteTypes && tripPlanner.dayOverlays.length > 0) {
+      // Per-day route types exist — use multi-mode endpoint
+      route.calculateMultiModeRoute(tripPlanner.dayOverlays);
+    } else {
+      route.calculateRoute();
+    }
+  }, [route, tripPlanner.hasPerDayRouteTypes, tripPlanner.dayOverlays]);
+
+  // Auth gate — early returns AFTER all hooks
   if (authLoading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-zinc-950">
-        <div className="text-zinc-500 text-sm">Loading...</div>
+      <div className="flex items-center justify-center h-screen bg-page">
+        <div className="text-muted text-sm">Loading...</div>
       </div>
     );
   }
@@ -426,7 +640,15 @@ export default function Home() {
     waypoints: route.waypoints,
     routes: route.routes,
     selectedRouteIndex: route.selectedRouteIndex,
-    routeType: route.routeType,
+    routeType: (() => {
+      // When an un-synced day is selected, show its route type in the selector
+      const sel = tripPlanner.selectedDay;
+      if (sel != null && tripPlanner.isMultiDay) {
+        const day = tripPlanner.dayOverlays.find((d) => d.day === sel);
+        if (day?.route_type) return day.route_type as RouteType;
+      }
+      return route.routeType;
+    })(),
     preferences: route.preferences,
     loading: route.loading,
     error: route.error,
@@ -438,9 +660,22 @@ export default function Home() {
     onAddWaypoint: handleSmartMapClick,
     onReorderWaypoints: route.reorderWaypoints,
     onClear: () => { route.clearWaypoints(); setLoadedTripId(null); setLoadedTripName(null); setLoadedTripIsMultiday(false); },
-    onCalculate: route.calculateRoute,
+    onCalculate: handleCalculateRoute,
     onRouteSelect: route.setSelectedRouteIndex,
-    onRouteTypeChange: route.setRouteType,
+    onRouteTypeChange: (type: RouteType) => {
+      const sel = tripPlanner.selectedDay;
+      if (sel != null && tripPlanner.isMultiDay) {
+        // A day is selected — check if it's un-synced
+        const day = tripPlanner.dayOverlays.find((d) => d.day === sel);
+        if (day?.route_type != null) {
+          // Un-synced day: change only this day's type
+          tripPlanner.setDayRouteType(sel, type);
+          return;
+        }
+      }
+      // No day selected, or day is synced: change trip-level default
+      route.setRouteType(type);
+    },
     onCustomPreferencesChange: route.setCustomPreferences,
     onSaveTrip: loadedTripId ? handleQuickSave : () => setShowSaveDialog(true),
     onSaveAsNewTrip: () => setShowSaveDialog(true),
@@ -453,9 +688,28 @@ export default function Home() {
     onExportGpx: handleExportGpx,
     analysis: route.analysis,
     analysisLoading: route.analysisLoading,
-    onApplyFix: route.applyFix,
+    onApplyFix: (anomaly: import("@/lib/types").RouteAnomaly) => {
+      route.applyFix(anomaly);
+      setNavigatedAnomaly(null);
+      setHighlightedAnomalyIndex(null);
+    },
     onHighlightAnomaly: setHighlightedAnomalyIndex,
     onNavigateToAnomaly: handleNavigateToAnomaly,
+    defaultVehicle,
+    aiPlanner: {
+      messages: aiPlanner.messages,
+      suggestions: aiPlanner.suggestions,
+      isOpen: aiPlanner.isOpen,
+      isLoading: aiPlanner.isLoading,
+      error: aiPlanner.error,
+      appliedMessageIdx: aiAppliedIdx,
+      onToggle: aiPlanner.toggle,
+      onSendMessage: (text: string) => aiPlanner.sendMessage(text, route.routeType, route.waypoints.length >= 2 ? route.waypoints : undefined),
+      onApplySuggestions: handleApplyAISuggestions,
+      onDismissSuggestions: aiPlanner.dismissSuggestions,
+      onEnrichPOIs: () => aiPlanner.loadPOIs(),
+      onClearChat: () => { aiPlanner.clearChat(); setAiAppliedIdx(null); },
+    },
     dayPlannerProps: {
       dayOverlays: tripPlanner.dayOverlays,
       dayStats: tripPlanner.dayStats,
@@ -473,11 +727,17 @@ export default function Home() {
       onImportDayGpx: handleImportDayGpx,
       waypointCount: route.waypoints.length,
       hasRoute: route.routes.length > 0,
+      tripRouteType: route.routeType,
+      onDayRouteTypeChange: tripPlanner.setDayRouteType,
+      daySuggestions: tripPlanner.daySuggestions,
+      onAddSuggestedWaypoint: (poi: import("@/lib/types").POIResult) => {
+        handleSmartMapClick({ lat: poi.lat, lng: poi.lng, label: poi.name });
+      },
     },
   };
 
   return (
-    <div className="flex flex-col h-screen bg-zinc-950">
+    <div className="flex flex-col h-screen bg-page">
       <TopNav />
       <div className="flex flex-1 min-h-0">
         {/* Sidebar */}
@@ -504,6 +764,21 @@ export default function Home() {
           overnightStopIndices={tripPlanner.overnightStopIndices}
           dayStats={tripPlanner.dayStats}
           selectedDay={tripPlanner.selectedDay}
+          pois={allMapPOIs}
+          onAddPOIAsWaypoint={(poi) => {
+            handleSmartMapClick({ lat: poi.lat, lng: poi.lng, label: poi.name });
+          }}
+          onClearPOIs={() => { setMapPOIs([]); setRoutePOIs([]); setPoiCategories(new Set()); }}
+          poiOverlaySlot={
+            <POIOverlayControls
+              categories={poiCategoryDefs.length > 0 ? poiCategoryDefs : DEFAULT_POI_CATEGORIES}
+              activeCategories={poiCategories}
+              onToggle={handleTogglePOICategory}
+              loading={poiLoading}
+              poiCount={allMapPOIs.length}
+              disabled={!route.routes.length}
+            />
+          }
         />
 
         {/* Mobile bottom sheet */}

@@ -171,6 +171,104 @@ async def auto_split_endpoint(request: AutoSplitRequest):
     )
 
 
+from pydantic import BaseModel as _PydModel
+
+class _VehicleFuelInfo(_PydModel):
+    consumption: float | None = None
+    consumption_unit: str = "mpg"
+    tank_capacity: float | None = None
+
+class _DaySuggestionsRequest(_PydModel):
+    waypoints: list[dict]        # [{lat, lng, label?}]
+    day_overlays: list[dict]     # [{day, start_waypoint_idx, end_waypoint_idx}]
+    shape: list[list[float]]     # [[lng, lat], ...] full route shape
+    legs: list[dict]             # [{distance_m, time_s}]
+    vehicle: _VehicleFuelInfo | None = None
+
+
+@router.post("/trip-planner/day-suggestions")
+async def get_day_suggestions(
+    request: _DaySuggestionsRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Auto-suggest overnight hotels and fuel stops for each day."""
+    from app.services.poi_service import find_pois_near_point, find_pois_along_route
+
+    suggestions = []
+
+    # Calculate tank range in km (if vehicle data available)
+    tank_range_km = None
+    if request.vehicle and request.vehicle.consumption and request.vehicle.tank_capacity:
+        cons = request.vehicle.consumption
+        unit = request.vehicle.consumption_unit
+        tank = request.vehicle.tank_capacity
+        if unit == "mpg" and cons > 0:
+            l_per_100km = 282.481 / cons
+        elif unit == "l100km":
+            l_per_100km = cons
+        else:
+            l_per_100km = cons  # kwhper100km treated same
+        if l_per_100km > 0:
+            tank_range_km = (tank / l_per_100km) * 100 * 0.85  # 85% usable
+
+    for day_ov in request.day_overlays:
+        day_num = day_ov.get("day", 0)
+        start_idx = day_ov.get("start_waypoint_idx", 0)
+        end_idx = day_ov.get("end_waypoint_idx", 0)
+        is_last_day = end_idx >= len(request.waypoints) - 1
+
+        # Sum distance for this day
+        day_legs = request.legs[start_idx:end_idx]
+        day_distance_m = sum(l.get("distance_m", 0) for l in day_legs)
+        day_distance_km = day_distance_m / 1000
+
+        # 1. Suggest overnight hotel (except last day)
+        hotel = None
+        if not is_last_day and end_idx < len(request.waypoints):
+            end_wp = request.waypoints[end_idx]
+            hotels = await find_pois_near_point(
+                db, end_wp.get("lat", 0), end_wp.get("lng", 0),
+                ["hotel"], buffer_deg=0.1, limit=1,
+            )
+            if hotels:
+                hotel = hotels[0]
+
+        # 2. Suggest fuel stops based on tank range
+        fuel_stops = []
+        if tank_range_km and day_distance_km > tank_range_km * 0.8:
+            # Need at least one fuel stop — find fuel POIs along this day's shape
+            # Determine shape slice for this day
+            if request.shape:
+                shape_len = len(request.shape)
+                # Estimate shape range from leg proportions
+                total_legs = len(request.legs) or 1
+                shape_start = int(shape_len * start_idx / total_legs)
+                shape_end = int(shape_len * end_idx / total_legs)
+                day_shape = request.shape[shape_start:shape_end + 1]
+
+                if day_shape:
+                    # Query fuel POIs along this day's shape corridor
+                    all_fuel = await find_pois_along_route(
+                        db, day_shape, ["fuel"], buffer_deg=0.1, max_results=20,
+                    )
+
+                    # Pick fuel stops at approximately tank_range intervals
+                    if all_fuel and day_distance_km > 0:
+                        num_stops = max(1, int(day_distance_km / tank_range_km))
+                        step = max(1, len(all_fuel) // (num_stops + 1))
+                        for i in range(step, len(all_fuel), step):
+                            if i < len(all_fuel) and len(fuel_stops) < num_stops:
+                                fuel_stops.append(all_fuel[i])
+
+        suggestions.append({
+            "day": day_num,
+            "hotel": hotel,
+            "fuel_stops": fuel_stops,
+        })
+
+    return {"suggestions": suggestions}
+
+
 @router.get("/trip-planner/trips")
 async def list_trips(
     db: AsyncSession = Depends(get_db),

@@ -15,7 +15,8 @@ import {
   DEFAULT_PREFERENCES,
   ROUTE_TYPE_PRESETS,
 } from "@/lib/types";
-import { planRoute, analyzeRoute } from "@/lib/api";
+import { planRoute, planMultiModeRoute, analyzeRoute } from "@/lib/api";
+import type { DayOverlay } from "@/lib/types";
 import { findInsertIndex } from "@/lib/geo";
 
 export function useRoute() {
@@ -69,6 +70,17 @@ export function useRoute() {
     // Auto-reroute is handled by the existing waypointsKey useEffect
   }, []);
 
+  // Update a waypoint's label by matching lat/lng (for async reverse geocoding)
+  const updateWaypointLabel = useCallback((lat: number, lng: number, label: string) => {
+    setWaypoints((prev) =>
+      prev.map((wp) =>
+        Math.abs(wp.lat - lat) < 0.0001 && Math.abs(wp.lng - lng) < 0.0001
+          ? { ...wp, label }
+          : wp
+      )
+    );
+  }, []);
+
   const reorderWaypoints = useCallback((fromIndex: number, toIndex: number) => {
     setWaypoints((prev) => {
       if (fromIndex === toIndex) return prev;
@@ -108,6 +120,35 @@ export function useRoute() {
       setRouteStale(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Route planning failed");
+      setRoutes([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [waypoints, routeType, preferences]);
+
+  // ---------- Multi-mode route (per-day route types) ----------
+  const calculateMultiModeRoute = useCallback(async (dayOverlays: DayOverlay[]) => {
+    if (waypoints.length < 2) {
+      setError("Add at least 2 waypoints");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await planMultiModeRoute(
+        waypoints,
+        routeType,
+        dayOverlays,
+        routeType === "custom" ? preferences : undefined,
+      );
+      setRoutes(response.routes);
+      setSelectedRouteIndex(0);
+      lastCalcKeyRef.current = JSON.stringify(waypoints.map((w) => [w.lat, w.lng]));
+      setRouteStale(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Multi-mode route failed");
       setRoutes([]);
     } finally {
       setLoading(false);
@@ -215,31 +256,47 @@ export function useRoute() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRouteIndex, selectedRoute?.distance_m]);
 
-  // Apply a fix from an anomaly
+  // Apply a fix from an anomaly — atomic waypoint mutation + auto-recalculate
   const applyFix = useCallback(
     (anomaly: RouteAnomaly) => {
       const fix = anomaly.fix;
-      if (fix.action === "remove_waypoint" && fix.waypoint_index !== null) {
-        removeWaypoint(fix.waypoint_index);
+
+      if (fix.action === "remove_waypoint" && fix.waypoint_index != null) {
+        setWaypoints((prev) => prev.filter((_, i) => i !== fix.waypoint_index));
       } else if (fix.action === "add_waypoint" && fix.suggested_coord) {
         const wp: Waypoint = {
           lat: fix.suggested_coord[1],
           lng: fix.suggested_coord[0],
-          label: fix.description.split(" at ")[1]?.split(" to ")[0] || "Suggested",
+          label: "Bypass",
         };
-        const idx = findInsertIndex(wp, waypoints);
-        insertWaypoint(wp, idx);
-      } else if (fix.action === "move_waypoint" && fix.waypoint_index !== null && fix.suggested_coord) {
-        removeWaypoint(fix.waypoint_index);
-        const wp: Waypoint = {
-          lat: fix.suggested_coord[1],
-          lng: fix.suggested_coord[0],
-        };
-        insertWaypoint(wp, fix.waypoint_index);
+        setWaypoints((prev) => {
+          const idx = findInsertIndex(wp, prev);
+          const next = [...prev];
+          next.splice(idx, 0, wp);
+          return next;
+        });
+      } else if (fix.action === "move_waypoint" && fix.waypoint_index != null && fix.suggested_coord) {
+        // Atomic: replace waypoint at index with new coords
+        setWaypoints((prev) => {
+          const next = [...prev];
+          if (fix.waypoint_index! < next.length) {
+            next[fix.waypoint_index!] = {
+              ...next[fix.waypoint_index!],
+              lat: fix.suggested_coord![1],
+              lng: fix.suggested_coord![0],
+            };
+          }
+          return next;
+        });
+      } else {
+        return; // no_action or unsupported
       }
-      // After mutation, the existing auto-recalculate effect will fire
+
+      // Clear stale analysis and mark route for recalculation
+      setAnalysis(null);
+      setRouteStale(true);
     },
-    [waypoints, removeWaypoint, insertWaypoint],
+    [],
   );
 
   return {
@@ -257,12 +314,14 @@ export function useRoute() {
     insertWaypoint,
     removeWaypoint,
     moveWaypoint,
+    updateWaypointLabel,
     reorderWaypoints,
     clearWaypoints,
     setSelectedRouteIndex,
     setRouteType,
     setCustomPreferences,
     calculateRoute,
+    calculateMultiModeRoute,
     routeStale,
     loadTrip,
     runAnalysis,

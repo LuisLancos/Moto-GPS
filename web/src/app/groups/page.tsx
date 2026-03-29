@@ -298,8 +298,8 @@ export default function GroupsPage() {
 
   if (authLoading || !user) {
     return (
-      <div className="flex items-center justify-center h-screen bg-zinc-950">
-        <div className="text-zinc-500 text-sm">Loading...</div>
+      <div className="flex items-center justify-center h-screen bg-page">
+        <div className="text-muted text-sm">Loading...</div>
       </div>
     );
   }
@@ -308,12 +308,12 @@ export default function GroupsPage() {
     switch (role) {
       case "owner": return "bg-amber-900/50 text-amber-400";
       case "editor": return "bg-blue-900/50 text-blue-400";
-      default: return "bg-zinc-800 text-zinc-400";
+      default: return "bg-surface-alt text-muted";
     }
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100">
+    <div className="min-h-screen bg-page text-primary">
       <TopNav />
 
       <div className="max-w-4xl mx-auto p-6 flex flex-col gap-6">
@@ -340,11 +340,11 @@ export default function GroupsPage() {
               {invitations.map((inv) => (
                 <div
                   key={inv.id}
-                  className="flex items-center justify-between bg-zinc-900 rounded-md px-3 py-2"
+                  className="flex items-center justify-between bg-surface rounded-md px-3 py-2"
                 >
                   <div>
-                    <span className="text-sm text-zinc-200">{inv.group_name}</span>
-                    <span className="text-xs text-zinc-500 ml-2">
+                    <span className="text-sm text-secondary">{inv.group_name}</span>
+                    <span className="text-xs text-muted ml-2">
                       by {inv.invited_by_name} as {inv.role}
                     </span>
                   </div>
@@ -357,7 +357,7 @@ export default function GroupsPage() {
                     </button>
                     <button
                       onClick={() => handleInvitation(inv.id, "decline")}
-                      className="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-xs px-3 py-1 rounded-md"
+                      className="bg-surface-hover hover:bg-surface-alt text-secondary text-xs px-3 py-1 rounded-md"
                     >
                       Decline
                     </button>
@@ -381,38 +381,38 @@ export default function GroupsPage() {
 
         {/* Create form */}
         {showCreate && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 flex flex-col gap-3">
+          <div className="bg-surface border border-border rounded-lg p-4 flex flex-col gap-3">
             <input
               value={gName}
               onChange={(e) => setGName(e.target.value)}
               placeholder="Group name"
-              className="bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-blue-600"
+              className="bg-surface-alt border border-border rounded-md px-3 py-2 text-sm text-primary placeholder:text-muted focus:outline-none focus:border-border-focus"
             />
             <textarea
               value={gDesc}
               onChange={(e) => setGDesc(e.target.value)}
               placeholder="Description (optional)"
               rows={2}
-              className="bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-blue-600 resize-none"
+              className="bg-surface-alt border border-border rounded-md px-3 py-2 text-sm text-primary placeholder:text-muted focus:outline-none focus:border-border-focus resize-none"
             />
             <div className="grid grid-cols-2 gap-3">
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-zinc-400">Target Date</label>
+                <label className="text-xs text-muted">Target Date</label>
                 <input
                   type="date"
                   value={gDate}
                   onChange={(e) => setGDate(e.target.value)}
-                  className="bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 focus:outline-none focus:border-blue-600"
+                  className="bg-surface-alt border border-border rounded-md px-3 py-2 text-sm text-primary focus:outline-none focus:border-border-focus"
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-xs text-zinc-400">Duration (days)</label>
+                <label className="text-xs text-muted">Duration (days)</label>
                 <input
                   type="number"
                   value={gDuration}
                   onChange={(e) => setGDuration(e.target.value)}
                   placeholder="e.g. 3"
-                  className="bg-zinc-800 border border-zinc-700 rounded-md px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-blue-600"
+                  className="bg-surface-alt border border-border rounded-md px-3 py-2 text-sm text-primary placeholder:text-muted focus:outline-none focus:border-border-focus"
                 />
               </div>
             </div>
@@ -420,11 +420,11 @@ export default function GroupsPage() {
               <button
                 onClick={handleCreate}
                 disabled={creating || !gName.trim()}
-                className="bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 text-white text-xs font-medium px-4 py-2 rounded-md"
+                className="bg-blue-600 hover:bg-blue-500 disabled:bg-surface-hover text-white text-xs font-medium px-4 py-2 rounded-md"
               >
                 {creating ? "Creating..." : "Create Group"}
               </button>
-              <button onClick={() => setShowCreate(false)} className="text-xs text-zinc-400 hover:text-zinc-200">
+              <button onClick={() => setShowCreate(false)} className="text-xs text-muted hover:text-secondary">
                 Cancel
               </button>
             </div>
@@ -433,29 +433,29 @@ export default function GroupsPage() {
 
         {/* Groups list */}
         {loading ? (
-          <p className="text-xs text-zinc-500">Loading groups...</p>
+          <p className="text-xs text-muted">Loading groups...</p>
         ) : groups.length === 0 ? (
-          <p className="text-sm text-zinc-500">No groups yet. Create one or wait for an invitation.</p>
+          <p className="text-sm text-muted">No groups yet. Create one or wait for an invitation.</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {groups.map((g) => (
               <button
                 key={g.id}
                 onClick={() => loadGroupDetail(g.id)}
-                className={`text-left bg-zinc-900 border rounded-lg p-4 transition-colors hover:border-zinc-600 ${
-                  selectedGroup?.id === g.id ? "border-blue-600" : "border-zinc-800"
+                className={`text-left bg-surface border rounded-lg p-4 transition-colors hover:border-surface-hover ${
+                  selectedGroup?.id === g.id ? "border-blue-600" : "border-border"
                 }`}
               >
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm font-medium text-zinc-200">{g.name}</span>
+                  <span className="text-sm font-medium text-secondary">{g.name}</span>
                   <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${roleColor(g.my_role)}`}>
                     {g.my_role}
                   </span>
                 </div>
                 {g.description && (
-                  <p className="text-xs text-zinc-500 truncate">{g.description}</p>
+                  <p className="text-xs text-muted truncate">{g.description}</p>
                 )}
-                <div className="flex gap-3 mt-2 text-[11px] text-zinc-500">
+                <div className="flex gap-3 mt-2 text-[11px] text-muted">
                   <span>👥 {g.member_count}</span>
                   {g.shared_item_count > 0 && (
                     <span className="text-indigo-400/80">{g.shared_item_count} shared</span>
@@ -470,9 +470,9 @@ export default function GroupsPage() {
 
         {/* Group detail */}
         {selectedGroup && (
-          <section className="bg-zinc-900 border border-zinc-800 rounded-lg p-5 flex flex-col gap-4">
+          <section className="bg-surface border border-border rounded-lg p-5 flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold text-zinc-200">{selectedGroup.name}</h2>
+              <h2 className="text-base font-semibold text-secondary">{selectedGroup.name}</h2>
               <div className="flex gap-2">
                 {selectedGroup.my_role === "owner" && (
                   <button
@@ -484,7 +484,7 @@ export default function GroupsPage() {
                 )}
                 <button
                   onClick={() => { setSelectedGroup(null); setShowInvite(false); }}
-                  className="text-xs text-zinc-400 hover:text-zinc-200"
+                  className="text-xs text-muted hover:text-secondary"
                 >
                   Close
                 </button>
@@ -494,7 +494,7 @@ export default function GroupsPage() {
             {/* Members */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider">
+                <h3 className="text-xs font-medium text-muted uppercase tracking-wider">
                   Members ({selectedGroup.members.length})
                 </h3>
                 {selectedGroup.my_role === "owner" && (
@@ -509,8 +509,8 @@ export default function GroupsPage() {
 
               {/* Invite form */}
               {showInvite && selectedGroup.my_role === "owner" && (
-                <div className="bg-zinc-800 border border-zinc-700 rounded-md p-3 mb-3 flex flex-col gap-2">
-                  <p className="text-[11px] text-zinc-500">
+                <div className="bg-surface-alt border border-border rounded-md p-3 mb-3 flex flex-col gap-2">
+                  <p className="text-[11px] text-muted">
                     Search for registered users by name or email to invite them.
                   </p>
                   <div className="flex gap-2">
@@ -518,19 +518,19 @@ export default function GroupsPage() {
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       placeholder="Search by name or email..."
-                      className="flex-1 bg-zinc-900 border border-zinc-700 rounded-md px-3 py-1.5 text-xs text-zinc-100 placeholder:text-zinc-600 focus:outline-none focus:border-blue-600"
+                      className="flex-1 bg-surface border border-border rounded-md px-3 py-1.5 text-xs text-primary placeholder:text-muted focus:outline-none focus:border-border-focus"
                     />
                     <select
                       value={inviteRole}
                       onChange={(e) => setInviteRole(e.target.value)}
-                      className="bg-zinc-900 border border-zinc-700 rounded-md px-2 py-1.5 text-xs text-zinc-100"
+                      className="bg-surface border border-border rounded-md px-2 py-1.5 text-xs text-primary"
                     >
                       <option value="editor">Editor</option>
                       <option value="viewer">Viewer</option>
                     </select>
                   </div>
                   {searchQuery.length >= 2 && searchResults.length === 0 && (
-                    <p className="text-[11px] text-zinc-500 italic">
+                    <p className="text-[11px] text-muted italic">
                       No users found. They need to register first (Admin &rarr; Generate Invite Code).
                     </p>
                   )}
@@ -545,13 +545,13 @@ export default function GroupsPage() {
                             disabled={inviting || alreadyMember}
                             className={`flex items-center justify-between rounded px-3 py-1.5 text-xs ${
                               alreadyMember
-                                ? "bg-zinc-900/50 text-zinc-600 cursor-not-allowed"
-                                : "bg-zinc-900 hover:bg-zinc-800 text-zinc-200"
+                                ? "bg-surface/50 text-muted cursor-not-allowed"
+                                : "bg-surface hover:bg-surface-alt text-secondary"
                             }`}
                           >
                             <span>
-                              <span className={alreadyMember ? "text-zinc-600" : "text-zinc-200"}>{u.name}</span>
-                              <span className="text-zinc-500 ml-2">{u.email}</span>
+                              <span className={alreadyMember ? "text-zinc-600" : "text-secondary"}>{u.name}</span>
+                              <span className="text-muted ml-2">{u.email}</span>
                             </span>
                             <span className={alreadyMember ? "text-zinc-600" : "text-blue-400"}>
                               {alreadyMember ? "Already member" : "Invite →"}
@@ -568,11 +568,11 @@ export default function GroupsPage() {
                 {selectedGroup.members.map((m) => (
                   <div
                     key={m.user_id}
-                    className="flex items-center justify-between px-3 py-1.5 rounded bg-zinc-800/50"
+                    className="flex items-center justify-between px-3 py-1.5 rounded bg-surface-alt/50"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-zinc-200">{m.name}</span>
-                      <span className="text-[10px] text-zinc-500">{m.email}</span>
+                      <span className="text-xs text-secondary">{m.name}</span>
+                      <span className="text-[10px] text-muted">{m.email}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${roleColor(m.role)}`}>
@@ -582,7 +582,7 @@ export default function GroupsPage() {
                         <div className="flex gap-1">
                           <button
                             onClick={() => handleChangeRole(m.user_id, m.role === "editor" ? "viewer" : "editor")}
-                            className="text-[10px] text-zinc-500 hover:text-zinc-300"
+                            className="text-[10px] text-muted hover:text-secondary"
                             title={`Change to ${m.role === "editor" ? "viewer" : "editor"}`}
                           >
                             {m.role === "editor" ? "→viewer" : "→editor"}
@@ -604,7 +604,7 @@ export default function GroupsPage() {
 
             {/* Shared items */}
             <div>
-              <h3 className="text-xs font-medium text-zinc-400 uppercase tracking-wider mb-2">
+              <h3 className="text-xs font-medium text-muted uppercase tracking-wider mb-2">
                 Shared Trips & Routes ({selectedGroup.shared_items.length})
               </h3>
               {selectedGroup.shared_items.length === 0 ? (
@@ -616,11 +616,11 @@ export default function GroupsPage() {
                   {selectedGroup.shared_items.map((s) => (
                     <div
                       key={s.id}
-                      className="flex items-center justify-between px-3 py-2 rounded bg-zinc-800/50"
+                      className="flex items-center justify-between px-3 py-2 rounded bg-surface-alt/50"
                     >
                       <div>
-                        <span className="text-xs text-zinc-200">{s.item_name}</span>
-                        <span className="text-[10px] text-zinc-500 ml-2">
+                        <span className="text-xs text-secondary">{s.item_name}</span>
+                        <span className="text-[10px] text-muted ml-2">
                           {s.item_type} • {s.item_distance_m ? formatDistance(s.item_distance_m) : "—"}
                           • by {s.shared_by_name}
                         </span>

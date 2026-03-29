@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 1440  # 24 hours
 
+    # AI trip planner
+    ai_provider: str = "gemini"  # "gemini" or "openai"
+    gemini_api_key: str = ""
+    openai_api_key: str = ""
+
     @property
     def database_url(self) -> str:
         return (

@@ -1,6 +1,7 @@
 "use client";
 
 import type { Waypoint, RouteResult, RouteType, RoutePreferences, TripSummary, RouteAnalysisResponse, RouteAnomaly } from "@/lib/types";
+import type { VehicleFuelData } from "@/lib/fuelCalc";
 import { formatDistance, formatTime } from "@/lib/formatters";
 import { RouteTypeSelector } from "./RouteTypeSelector";
 import { RouteStats } from "./RouteStats";
@@ -8,8 +9,9 @@ import { RouteAnalysis } from "./RouteAnalysis";
 import { SavedTrips } from "./SavedTrips";
 import { WaypointList } from "./WaypointList";
 import { DayPlannerPanel } from "./DayPlannerPanel";
-import type { DayOverlay, DayOverlayWithStats } from "@/lib/types";
+import type { DayOverlay, DayOverlayWithStats, AIChatMessage, AISuggestions } from "@/lib/types";
 import type { UserGroup } from "@/lib/api";
+import { AIPlannerChat } from "../ai/AIPlannerChat";
 
 interface RoutePanelProps {
   waypoints: Waypoint[];
@@ -48,6 +50,23 @@ interface RoutePanelProps {
   onApplyFix: (anomaly: RouteAnomaly) => void;
   onHighlightAnomaly: (index: number | null) => void;
   onNavigateToAnomaly: (anomaly: RouteAnomaly) => void;
+  // AI trip planner
+  aiPlanner?: {
+    messages: AIChatMessage[];
+    suggestions: AISuggestions | null;
+    isOpen: boolean;
+    isLoading: boolean;
+    error: string | null;
+    appliedMessageIdx: number | null;
+    onToggle: () => void;
+    onSendMessage: (text: string) => void;
+    onApplySuggestions: () => void;
+    onDismissSuggestions: () => void;
+    onEnrichPOIs: () => void;
+    onClearChat: () => void;
+  };
+  // Fuel estimation
+  defaultVehicle?: VehicleFuelData | null;
   // Multi-day trip planner
   dayPlannerProps?: {
     dayOverlays: DayOverlay[];
@@ -62,6 +81,8 @@ interface RoutePanelProps {
     onSetDailyTarget: (target: number) => void;
     onSetIsMultiDay: (active: boolean) => void;
     onUpdateDayMeta: (day: number, meta: { name?: string; description?: string }) => void;
+    daySuggestions?: import("@/lib/types").DaySuggestion[];
+    onAddSuggestedWaypoint?: (poi: import("@/lib/types").POIResult) => void;
   };
 }
 
@@ -101,6 +122,8 @@ export function RoutePanel({
   onApplyFix,
   onHighlightAnomaly,
   onNavigateToAnomaly,
+  aiPlanner,
+  defaultVehicle,
   dayPlannerProps,
 }: RoutePanelProps) {
   const selectedRoute = routes[selectedRouteIndex] || null;
@@ -111,9 +134,9 @@ export function RoutePanel({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex flex-col">
-          <h1 className="text-lg font-bold text-zinc-100">Moto-GPS</h1>
+          <h1 className="text-lg font-bold text-primary">Moto-GPS</h1>
           {loadedTripName && (
-            <span className="text-[11px] text-zinc-500 truncate max-w-[160px]">
+            <span className="text-[11px] text-muted truncate max-w-[160px]">
               Editing: {loadedTripName}
             </span>
           )}
@@ -121,7 +144,7 @@ export function RoutePanel({
         <div className="flex items-center gap-2">
           {/* Import Route (.gpx) */}
           <label
-            className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
+            className="text-xs text-muted hover:text-secondary transition-colors cursor-pointer"
             title="Import a single route (.gpx)"
           >
             📥 Route
@@ -140,7 +163,7 @@ export function RoutePanel({
           </label>
           {/* Import Trip (.zip) */}
           <label
-            className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors cursor-pointer"
+            className="text-xs text-muted hover:text-secondary transition-colors cursor-pointer"
             title="Import a multi-day trip (.zip of GPX files)"
           >
             📥 Trip
@@ -160,13 +183,43 @@ export function RoutePanel({
           {waypoints.length > 0 && (
             <button
               onClick={onClear}
-              className="text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+              className="text-xs text-muted hover:text-secondary transition-colors"
             >
               Clear all
             </button>
           )}
         </div>
       </div>
+
+      {/* AI Trip Planner */}
+      {aiPlanner && (
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={aiPlanner.onToggle}
+            className={`flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-md transition-colors ${
+              aiPlanner.isOpen
+                ? "bg-purple-700 text-white"
+                : "bg-surface-alt border border-border text-secondary hover:border-purple-600 hover:text-purple-300"
+            }`}
+          >
+            ✨ AI Trip Planner
+          </button>
+          {aiPlanner.isOpen && (
+            <AIPlannerChat
+              messages={aiPlanner.messages}
+              suggestions={aiPlanner.suggestions}
+              isLoading={aiPlanner.isLoading}
+              error={aiPlanner.error}
+              onSendMessage={aiPlanner.onSendMessage}
+              onApplySuggestions={aiPlanner.onApplySuggestions}
+              onDismissSuggestions={aiPlanner.onDismissSuggestions}
+              onEnrichPOIs={aiPlanner.onEnrichPOIs}
+              onClearChat={aiPlanner.onClearChat}
+              appliedMessageIdx={aiPlanner.appliedMessageIdx}
+            />
+          )}
+        </div>
+      )}
 
       {/* Saved Trips */}
       <SavedTrips
@@ -200,7 +253,7 @@ export function RoutePanel({
           <button
             onClick={onCalculate}
             disabled={loading}
-            className={`flex-1 rounded-md font-medium py-2.5 transition-colors text-sm text-white disabled:bg-zinc-700 disabled:text-zinc-500 ${
+            className={`flex-1 rounded-md font-medium py-2.5 transition-colors text-sm text-white disabled:bg-surface-hover disabled:text-muted ${
               routeStale
                 ? "bg-amber-600 hover:bg-amber-500"
                 : "bg-blue-600 hover:bg-blue-500"
@@ -212,7 +265,7 @@ export function RoutePanel({
             <>
               <button
                 onClick={onSaveTrip}
-                className="rounded-md bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-medium px-3 py-2.5 transition-colors text-sm"
+                className="rounded-md bg-surface-hover hover:bg-surface-alt text-secondary font-medium px-3 py-2.5 transition-colors text-sm"
                 title={loadedTripName ? `Save "${loadedTripName}"` : "Save as new trip"}
               >
                 💾{loadedTripName ? "" : "+"}
@@ -220,7 +273,7 @@ export function RoutePanel({
               {loadedTripName && (
                 <button
                   onClick={onSaveAsNewTrip}
-                  className="rounded-md bg-zinc-700 hover:bg-zinc-600 text-zinc-200 font-medium px-3 py-2.5 transition-colors text-[10px]"
+                  className="rounded-md bg-surface-hover hover:bg-surface-alt text-secondary font-medium px-3 py-2.5 transition-colors text-[10px]"
                   title="Save as new trip"
                 >
                   💾+
@@ -241,7 +294,7 @@ export function RoutePanel({
       {/* Route results */}
       {routes.length > 0 && (
         <div className="flex flex-col gap-2">
-          <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+          <span className="text-xs font-medium text-muted uppercase tracking-wider">
             Routes ({routes.length})
           </span>
           {routes.map((route, i) => (
@@ -253,12 +306,12 @@ export function RoutePanel({
                 ${
                   i === selectedRouteIndex
                     ? "bg-blue-950/50 border-blue-600"
-                    : "bg-zinc-800 border-zinc-700 hover:border-zinc-500"
+                    : "bg-surface-alt border-border hover:border-surface-hover"
                 }
               `}
             >
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-zinc-200">
+                <span className="text-sm font-medium text-secondary">
                   Route {i + 1}
                 </span>
                 {route.moto_score !== null && (
@@ -275,7 +328,7 @@ export function RoutePanel({
                   </span>
                 )}
               </div>
-              <div className="flex gap-3 text-xs text-zinc-400">
+              <div className="flex gap-3 text-xs text-muted">
                 <span>{formatDistance(route.distance_m)}</span>
                 <span>{formatTime(route.time_s)}</span>
               </div>
@@ -290,11 +343,19 @@ export function RoutePanel({
           {...dayPlannerProps}
           waypointCount={waypoints.length}
           hasRoute={hasRoutes}
+          defaultVehicle={defaultVehicle}
         />
       )}
 
-      {/* Selected route stats */}
-      {selectedRoute && <RouteStats route={selectedRoute} />}
+      {/* Selected route stats — filtered by day when a day is selected */}
+      {selectedRoute && (
+        <RouteStats
+          route={selectedRoute}
+          selectedDay={dayPlannerProps?.selectedDay}
+          dayStats={dayPlannerProps?.dayStats}
+          defaultVehicle={defaultVehicle}
+        />
+      )}
 
       {/* Route analysis */}
       {(analysis || analysisLoading) && selectedRoute && (

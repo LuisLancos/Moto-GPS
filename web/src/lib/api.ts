@@ -26,25 +26,150 @@ export interface GeocodingResult {
 }
 
 export async function geocodeSearch(query: string): Promise<GeocodingResult[]> {
-  const params = new URLSearchParams({
-    q: query,
-    format: "json",
-    limit: "5",
-    countrycodes: "gb",
-    addressdetails: "1",
-  });
-  const res = await fetch(
-    `https://nominatim.openstreetmap.org/search?${params}`,
-    { headers: { "User-Agent": "MotoGPS/1.0" } }
+  // Search Nominatim, local POIs, and UK postcode lookup in parallel
+  const [nominatimResults, poiResults, postcodeResults] = await Promise.all([
+    _nominatimSearch(query),
+    _poiSearch(query),
+    _postcodeSearch(query),
+  ]);
+
+  // Deduplicate: if postcode result is within 500m of a Nominatim result, skip it
+  const filtered = postcodeResults.filter((pc) =>
+    !nominatimResults.some((nr) => _distM(pc.lat, pc.lng, nr.lat, nr.lng) < 500)
   );
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.map((r: Record<string, string>) => ({
-    lat: parseFloat(r.lat),
-    lng: parseFloat(r.lon),
-    display_name: r.display_name,
-    type: r.type || "place",
-  }));
+
+  // POI results first, then postcode results, then address results
+  return [...poiResults, ...filtered, ...nominatimResults];
+}
+
+// Haversine distance in meters (for dedup)
+function _distM(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+async function _nominatimSearch(query: string): Promise<GeocodingResult[]> {
+  try {
+    const params = new URLSearchParams({
+      q: query,
+      format: "json",
+      limit: "5",
+      countrycodes: "gb",
+      addressdetails: "1",
+    });
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?${params}`,
+      { headers: { "User-Agent": "MotoGPS/1.0" } }
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.map((r: Record<string, string>) => ({
+      lat: parseFloat(r.lat),
+      lng: parseFloat(r.lon),
+      display_name: r.display_name,
+      type: r.type || "place",
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function _poiSearch(query: string): Promise<GeocodingResult[]> {
+  if (query.length < 3) return []; // POI search needs at least 3 chars
+  try {
+    const res = await authFetch(`/api/poi-search?q=${encodeURIComponent(query)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.results || []).map((p: { lat: number; lng: number; name: string; category: string; address?: string }) => ({
+      lat: p.lat,
+      lng: p.lng,
+      display_name: `${p.name}${p.address ? ` — ${p.address}` : ""} (${p.category})`,
+      type: `poi:${p.category}`,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+// UK postcode geocoding via postcodes.io (free, no key needed)
+const UK_POSTCODE_RE = /\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i;
+
+async function _postcodeSearch(query: string): Promise<GeocodingResult[]> {
+  const match = query.match(UK_POSTCODE_RE);
+  if (!match) return [];
+
+  const postcode = match[1].trim().toUpperCase();
+  try {
+    // First try exact postcode lookup
+    const res = await fetch(`https://api.postcodes.io/postcodes/${encodeURIComponent(postcode)}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (data.status !== 200 || !data.result) return [];
+
+    const r = data.result;
+    const parts = query.replace(UK_POSTCODE_RE, "").trim();
+    const label = parts
+      ? `${parts}, ${r.postcode} — ${r.admin_ward}, ${r.admin_district}`
+      : `${r.postcode} — ${r.admin_ward}, ${r.admin_district}`;
+
+    return [{
+      lat: r.latitude,
+      lng: r.longitude,
+      display_name: label,
+      type: "postcode",
+    }];
+  } catch {
+    return [];
+  }
+}
+
+// ---------- Reverse Geocoding (coordinates → human label) ----------
+
+export async function reverseGeocode(lat: number, lng: number): Promise<string> {
+  try {
+    // Try Nominatim reverse geocode
+    const params = new URLSearchParams({
+      lat: lat.toFixed(6),
+      lon: lng.toFixed(6),
+      format: "json",
+      zoom: "17", // street-level detail
+      addressdetails: "1",
+    });
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?${params}`,
+      { headers: { "User-Agent": "MotoGPS/1.0" } }
+    );
+    if (!res.ok) return _coordLabel(lat, lng);
+    const data = await res.json();
+
+    if (!data || data.error) return _coordLabel(lat, lng);
+
+    const addr = data.address || {};
+    // Build a short, human-readable label
+    const road = addr.road || addr.pedestrian || addr.path || addr.cycleway || "";
+    const village = addr.village || addr.hamlet || addr.suburb || addr.town || addr.city || "";
+    const county = addr.county || addr.state_district || "";
+
+    if (road && village) return `${road}, ${village}`;
+    if (road && county) return `${road}, ${county}`;
+    if (road) return road;
+    if (village) return village;
+    if (data.display_name) {
+      // Take first 2 parts of the display name
+      const parts = data.display_name.split(",").slice(0, 2).map((s: string) => s.trim());
+      return parts.join(", ");
+    }
+    return _coordLabel(lat, lng);
+  } catch {
+    return _coordLabel(lat, lng);
+  }
+}
+
+function _coordLabel(lat: number, lng: number): string {
+  return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
 }
 
 // ---------- Route Planning ----------
@@ -71,6 +196,65 @@ export async function planRoute(
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || "Route planning failed");
+  }
+
+  return res.json();
+}
+
+export async function fetchRoutePOIs(
+  shape: number[][],
+  categories: string[],
+): Promise<import("@/lib/types").POIResult[]> {
+  // Sample the shape to reduce payload size (send ~10 points, not 10000+)
+  const step = Math.max(1, Math.floor(shape.length / 10));
+  const sampled = shape.filter((_, i) => i % step === 0);
+  if (sampled[sampled.length - 1] !== shape[shape.length - 1]) {
+    sampled.push(shape[shape.length - 1]);
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 90000); // 90s timeout for Overpass
+
+  try {
+    const res = await authFetch("/api/route/pois", {
+      method: "POST",
+      body: JSON.stringify({ shape: sampled, categories }),
+      signal: controller.signal,
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.pois || [];
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function planMultiModeRoute(
+  waypoints: Waypoint[],
+  routeType: RouteType,
+  dayOverlays: DayOverlay[],
+  customPreferences?: RoutePreferences,
+): Promise<RouteResponse> {
+  const body: Record<string, unknown> = {
+    waypoints,
+    route_type: routeType === "custom" ? "balanced" : routeType,
+    day_overlays: dayOverlays,
+  };
+
+  if (routeType === "custom" && customPreferences) {
+    body.preferences = customPreferences;
+  }
+
+  const res = await authFetch("/api/route/multi-mode", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || "Multi-mode route planning failed");
   }
 
   return res.json();
@@ -179,6 +363,21 @@ export async function autoSplitTrip(
     }),
   });
   if (!res.ok) throw new Error("Auto-split failed");
+  return res.json();
+}
+
+export async function fetchDaySuggestions(
+  waypoints: Waypoint[],
+  dayOverlays: DayOverlay[],
+  shape: number[][],
+  legs: { distance_m: number; time_s: number }[],
+  vehicle?: { consumption: number | null; consumption_unit: string; tank_capacity: number | null } | null,
+): Promise<{ suggestions: import("@/lib/types").DaySuggestion[] }> {
+  const res = await authFetch("/api/trip-planner/day-suggestions", {
+    method: "POST",
+    body: JSON.stringify({ waypoints, day_overlays: dayOverlays, shape, legs, vehicle }),
+  });
+  if (!res.ok) return { suggestions: [] };
   return res.json();
 }
 

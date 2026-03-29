@@ -165,6 +165,8 @@ class DayOverlay(BaseModel):
     description: str | None = None        # User's notes for this day
     start_waypoint_idx: int
     end_waypoint_idx: int
+    route_type: str | None = None         # None = synced with trip default
+    preferences: RoutePreferences | None = None  # None = use route_type preset
 
 
 class DayOverlayWithStats(DayOverlay):
@@ -175,6 +177,14 @@ class DayOverlayWithStats(DayOverlay):
     waypoint_count: int = 0
     shape_start_idx: int = 0
     shape_end_idx: int = 0
+
+
+class MultiModeRouteRequest(BaseModel):
+    """Request for per-day route mode calculation."""
+    waypoints: list[Waypoint]
+    route_type: RouteType = RouteType.balanced       # trip-level default
+    preferences: RoutePreferences | None = None
+    day_overlays: list[DayOverlay]                    # each may have its own route_type
 
 
 class AutoSplitRequest(BaseModel):

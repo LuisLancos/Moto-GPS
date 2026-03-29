@@ -3,10 +3,82 @@
 @theme inline {
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Semantic color tokens — used as bg-surface, text-primary, etc. */
+  --color-page: var(--page);
+  --color-surface: var(--surface);
+  --color-surface-alt: var(--surface-alt);
+  --color-surface-hover: var(--surface-hover);
+  --color-input: var(--input);
+  --color-primary: var(--text-primary);
+  --color-secondary: var(--text-secondary);
+  --color-muted: var(--text-muted);
+  --color-border: var(--border-color);
+  --color-border-focus: var(--border-focus);
+  --color-card: var(--card-bg);
+  --color-card-hover: var(--card-hover);
+  --color-nav: var(--nav-bg);
+  --color-overlay: var(--overlay-bg);
+}
+
+/* ===== Light Theme (default) ===== */
+:root {
+  --page: #f4f4f5;        /* zinc-100 */
+  --surface: #ffffff;       /* white */
+  --surface-alt: #e4e4e7;  /* zinc-200 */
+  --surface-hover: #d4d4d8; /* zinc-300 */
+  --input: #e4e4e7;        /* zinc-200 */
+  --text-primary: #18181b; /* zinc-900 */
+  --text-secondary: #3f3f46; /* zinc-700 */
+  --text-muted: #71717a;   /* zinc-500 */
+  --border-color: #d4d4d8; /* zinc-300 */
+  --border-focus: #3b82f6; /* blue-500 */
+  --card-bg: #ffffff;
+  --card-hover: #f4f4f5;
+  --nav-bg: #ffffff;
+  --overlay-bg: rgba(255, 255, 255, 0.95);
+  --shadow-color: rgba(0, 0, 0, 0.1);
+}
+
+/* ===== Dark Theme ===== */
+:root.dark {
+  --page: #09090b;         /* zinc-950 */
+  --surface: #18181b;       /* zinc-900 */
+  --surface-alt: #27272a;  /* zinc-800 */
+  --surface-hover: #3f3f46; /* zinc-700 */
+  --input: #27272a;        /* zinc-800 */
+  --text-primary: #f4f4f5; /* zinc-100 */
+  --text-secondary: #d4d4d8; /* zinc-300 */
+  --text-muted: #a1a1aa;   /* zinc-400 */
+  --border-color: #27272a; /* zinc-800 */
+  --border-focus: #3b82f6; /* blue-500 */
+  --card-bg: #18181b;
+  --card-hover: #27272a;
+  --nav-bg: #09090b;
+  --overlay-bg: rgba(9, 9, 11, 0.95);
+  --shadow-color: rgba(0, 0, 0, 0.4);
 }
 
 /* Ensure map container fills its parent */
 .maplibregl-map {
   width: 100% !important;
   height: 100% !important;
+}
+
+/* Smooth theme transitions */
+html {
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* MapLibre popup styling for both themes */
+.maplibregl-popup-content {
+  background: var(--card-bg) !important;
+  color: var(--text-primary) !important;
+  border: 1px solid var(--border-color) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 12px var(--shadow-color) !important;
+}
+
+.maplibregl-popup-close-button {
+  color: var(--text-muted) !important;
 }

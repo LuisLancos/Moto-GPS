@@ -68,64 +68,89 @@ def _shape_index_for_leg(route: RouteResult, leg_index: int) -> tuple[int, int]:
 # ──────────────────── Geometry Detectors ────────────────────
 
 def detect_backtracking(waypoints: list[Waypoint], route: RouteResult) -> list[RouteAnomaly]:
-    """Detect waypoints that send the route backwards (>120° off overall bearing)."""
-    if len(waypoints) < 3:
+    """Detect waypoints that cause the route to reverse direction.
+
+    Uses LOCAL context (previous + next segment bearings) instead of a global
+    overall bearing.  This correctly handles loop routes where start ≈ end.
+
+    A waypoint is flagged only when it causes a sharp reversal (>140°) relative
+    to the PREVIOUS travel direction AND adds significant extra distance
+    (the two legs around it are >2× the straight-line from prev→next).
+    """
+    if len(waypoints) < 4:
         return []
 
-    anomalies = []
-    start = _wp_to_lnglat(waypoints[0])
-    end = _wp_to_lnglat(waypoints[-1])
-    overall = _bearing(start, end)
+    anomalies: list[RouteAnomaly] = []
 
-    for i in range(len(waypoints) - 1):
-        p1 = _wp_to_lnglat(waypoints[i])
-        p2 = _wp_to_lnglat(waypoints[i + 1])
-        seg_bearing = _bearing(p1, p2)
-        diff = _angular_diff(seg_bearing, overall)
+    for i in range(1, len(waypoints) - 1):
+        prev = _wp_to_lnglat(waypoints[i - 1])
+        curr = _wp_to_lnglat(waypoints[i])
+        nxt  = _wp_to_lnglat(waypoints[i + 1])
 
-        if diff > 120:
-            si, ei = _shape_index_for_leg(route, i)
-            wp_label = waypoints[i + 1].label or f"waypoint {i + 2}"
+        # Bearing of incoming leg vs outgoing leg
+        bearing_in  = _bearing(prev, curr)
+        bearing_out = _bearing(curr, nxt)
+        reversal    = _angular_diff(bearing_in, bearing_out)
 
-            # Compute a "move" suggestion: shift waypoint along overall bearing
-            move_lat = waypoints[i].lat + (waypoints[-1].lat - waypoints[0].lat) * 0.1
-            move_lng = waypoints[i].lng + (waypoints[-1].lng - waypoints[0].lng) * 0.1
+        if reversal < 140:
+            continue  # Not a sharp enough reversal
 
-            fixes = [
-                AnomalyFix(
-                    action="move_waypoint",
-                    waypoint_index=i + 1,
-                    suggested_coord=[move_lng, move_lat],
-                    description=f"Move {wp_label} forward along the route direction to eliminate backtracking",
-                ),
-                AnomalyFix(
-                    action="remove_waypoint",
-                    waypoint_index=i + 1,
-                    description=f"Remove {wp_label} entirely",
-                ),
-            ]
+        # Check if it actually adds significant distance (not just a slight zig-zag)
+        dist_via = (
+            _haversine_m(prev, curr) + _haversine_m(curr, nxt)
+        )
+        dist_direct = _haversine_m(prev, nxt)
+        if dist_direct < 500:
+            continue  # Prev and next are very close — not worth flagging
+        if dist_via < dist_direct * 2.0:
+            continue  # The detour isn't significant enough
 
-            anomalies.append(RouteAnomaly(
-                type=AnomalyType.backtracking,
-                severity=AnomalySeverity.issue,
-                title=f"Backtracking at {wp_label}",
-                description=(
-                    f"Segment {i + 1}→{i + 2} heads {seg_bearing:.0f}° "
-                    f"but the destination is at {overall:.0f}° — "
-                    f"a {diff:.0f}° deviation. This sends the route backwards."
-                ),
-                segment=AnomalySegment(
-                    start_shape_index=si,
-                    end_shape_index=ei,
-                    start_coord=p1,
-                    end_coord=p2,
-                ),
-                affected_waypoint_index=i + 1,
-                metric_value=diff,
-                metric_threshold=120.0,
-                fix=fixes[0],
-                fixes=fixes,
-            ))
+        si, ei = _shape_index_for_leg(route, i - 1)
+        _, ei2 = _shape_index_for_leg(route, i)
+        ei = max(ei, ei2)  # Span both legs around the problematic waypoint
+
+        wp_label = waypoints[i].label or f"waypoint {i + 1}"
+
+        # Suggest moving to the midpoint between prev and next
+        mid_lng = (waypoints[i - 1].lng + waypoints[i + 1].lng) / 2
+        mid_lat = (waypoints[i - 1].lat + waypoints[i + 1].lat) / 2
+
+        fixes = [
+            AnomalyFix(
+                action="move_waypoint",
+                waypoint_index=i,
+                suggested_coord=[mid_lng, mid_lat],
+                description=f"Move {wp_label} to a position between the surrounding waypoints",
+            ),
+            AnomalyFix(
+                action="remove_waypoint",
+                waypoint_index=i,
+                description=f"Remove {wp_label}",
+            ),
+        ]
+
+        extra_km = (dist_via - dist_direct) / 1000
+        anomalies.append(RouteAnomaly(
+            type=AnomalyType.backtracking,
+            severity=AnomalySeverity.issue,
+            title=f"Route reverses at {wp_label}",
+            description=(
+                f"{wp_label} causes a {reversal:.0f}° direction reversal, "
+                f"adding ~{extra_km:.0f}km of extra distance. "
+                f"The route doubles back on itself here."
+            ),
+            segment=AnomalySegment(
+                start_shape_index=si,
+                end_shape_index=ei,
+                start_coord=prev,
+                end_coord=nxt,
+            ),
+            affected_waypoint_index=i,
+            metric_value=reversal,
+            metric_threshold=140.0,
+            fix=fixes[0],
+            fixes=fixes,
+        ))
 
     return anomalies
 
@@ -142,7 +167,7 @@ def detect_close_proximity(waypoints: list[Waypoint], route: RouteResult) -> lis
         distances.append(d)
 
     avg_spacing = sum(distances) / len(distances) if distances else 0
-    threshold = max(avg_spacing * 0.05, 2000)  # 5% of average or 2km floor
+    threshold = max(avg_spacing * 0.10, 3000)  # 10% of average or 3km floor
 
     for i, d in enumerate(distances):
         if d < threshold and len(distances) > 1:

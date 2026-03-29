@@ -22,7 +22,7 @@ class SaveTripRequest(BaseModel):
     route_type: str = "balanced"
     waypoints: list[dict]  # [{lat, lng, label?}]
     preferences: dict  # full RoutePreferences dict
-    selected_route: dict | None = None  # the chosen RouteResult
+    route_data: dict | None = None  # full RouteResult as dict
     total_distance_m: float | None = None
     total_time_s: float | None = None
     total_moto_score: float | None = None
@@ -232,7 +232,7 @@ async def save_trip(
             "name": req.name.strip(),
             "description": (req.description or "").strip() or None,
             "route_type": req.route_type,
-            "waypoints": json.dumps([w.model_dump() for w in req.waypoints]),
+            "waypoints": json.dumps(req.waypoints),
             "preferences": json.dumps(req.preferences),
             "route_data": json.dumps(req.route_data) if req.route_data else None,
             "distance": req.total_distance_m,
@@ -329,7 +329,7 @@ async def overwrite_trip(
         "name": req.name,
         "description": req.description,
         "route_type": req.route_type,
-        "waypoints": json.dumps([w.model_dump() for w in req.waypoints]),
+        "waypoints": json.dumps(req.waypoints),
         "preferences": json.dumps(req.preferences),
         "route_data": json.dumps(req.route_data) if req.route_data else None,
         "distance": req.total_distance_m,

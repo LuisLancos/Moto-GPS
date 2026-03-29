@@ -1,7 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import type { DayOverlay, DayOverlayWithStats } from "@/lib/types";
+import type { DayOverlay, DayOverlayWithStats, RouteType, DaySuggestion } from "@/lib/types";
+import { ROUTE_TYPE_META } from "@/lib/types";
+import { useUnits } from "@/contexts/UnitContext";
+import { formatTime } from "@/lib/formatters";
+import { estimateFuel, type VehicleFuelData } from "@/lib/fuelCalc";
 
 interface DayPlannerPanelProps {
   dayOverlays: DayOverlay[];
@@ -21,26 +25,12 @@ interface DayPlannerPanelProps {
   onExportAllDaysGpx?: () => void;
   waypointCount: number;
   hasRoute: boolean;
-}
-
-function formatDistance(meters: number): string {
-  if (meters < 1000) return `${Math.round(meters)}m`;
-  const km = meters / 1000;
-  if (km >= 100) return `${Math.round(km)}km`;
-  return `${km.toFixed(1)}km`;
-}
-
-function formatMiles(meters: number): string {
-  const miles = meters / 1609.344;
-  if (miles >= 100) return `${Math.round(miles)}mi`;
-  return `${miles.toFixed(1)}mi`;
-}
-
-function formatTime(seconds: number): string {
-  const hours = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  if (hours > 0) return `${hours}h ${mins}m`;
-  return `${mins}m`;
+  // Per-day route type (sync/unsync)
+  tripRouteType?: RouteType;
+  onDayRouteTypeChange?: (day: number, type: RouteType | undefined) => void;
+  defaultVehicle?: VehicleFuelData | null;
+  daySuggestions?: DaySuggestion[];
+  onAddSuggestedWaypoint?: (poi: import("@/lib/types").POIResult) => void;
 }
 
 export function DayPlannerPanel({
@@ -60,10 +50,16 @@ export function DayPlannerPanel({
   onExportAllDaysGpx,
   waypointCount,
   hasRoute,
+  tripRouteType = "balanced",
+  onDayRouteTypeChange,
+  defaultVehicle,
+  daySuggestions,
+  onAddSuggestedWaypoint,
 }: DayPlannerPanelProps) {
   const [editingDay, setEditingDay] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
   const [editDesc, setEditDesc] = useState("");
+  const { formatDist } = useUnits();
 
   // Don't show unless route exists with 3+ waypoints
   if (!hasRoute || waypointCount < 3) return null;
@@ -71,13 +67,13 @@ export function DayPlannerPanel({
   // Show activation button when not in multi-day mode
   if (!isMultiDay) {
     return (
-      <div className="border border-dashed border-zinc-700 rounded-md p-3">
+      <div className="border border-dashed border-border rounded-md p-3">
         <button
           onClick={() => {
             onSetIsMultiDay(true);
             onAutoSplit();
           }}
-          className="w-full text-sm text-zinc-300 hover:text-white transition-colors py-1"
+          className="w-full text-sm text-secondary hover:text-primary transition-colors py-1"
         >
           🗓️ Split into Multi-Day Trip
         </button>
@@ -89,15 +85,15 @@ export function DayPlannerPanel({
   const totalTime = dayStats.reduce((s, d) => s + d.time_s, 0);
 
   return (
-    <div className="flex flex-col gap-3 border border-zinc-700 rounded-md p-3 bg-zinc-900/50">
+    <div className="flex flex-col gap-3 border border-border rounded-md p-3 bg-surface/50">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-zinc-400 uppercase tracking-wider">
+        <span className="text-xs font-medium text-muted uppercase tracking-wider">
           🗓️ Multi-Day Trip ({dayStats.length} {dayStats.length === 1 ? "day" : "days"})
         </span>
         <button
           onClick={() => { onClearDays(); onSetIsMultiDay(false); }}
-          className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+          className="text-[10px] text-muted hover:text-secondary transition-colors"
         >
           Close
         </button>
@@ -106,9 +102,9 @@ export function DayPlannerPanel({
       {/* Daily target slider */}
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between">
-          <span className="text-[11px] text-zinc-500">Daily target</span>
-          <span className="text-[11px] text-zinc-300 font-mono">
-            {formatDistance(dailyTargetM)} / {formatMiles(dailyTargetM)}
+          <span className="text-[11px] text-muted">Daily target</span>
+          <span className="text-[11px] text-secondary font-mono">
+            {formatDist(dailyTargetM)}
           </span>
         </div>
         <input
@@ -118,7 +114,7 @@ export function DayPlannerPanel({
           step={25000}
           value={dailyTargetM}
           onChange={(e) => onSetDailyTarget(Number(e.target.value))}
-          className="w-full h-1 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+          className="w-full h-1 bg-surface-hover rounded-lg appearance-none cursor-pointer accent-blue-500"
         />
         <div className="flex justify-between text-[10px] text-zinc-600">
           <span>100km</span>
@@ -131,13 +127,13 @@ export function DayPlannerPanel({
         <button
           onClick={onAutoSplit}
           disabled={splitting}
-          className="flex-1 text-[11px] rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 py-1.5 transition-colors disabled:opacity-50"
+          className="flex-1 text-[11px] rounded bg-surface-alt hover:bg-surface-hover text-secondary py-1.5 transition-colors disabled:opacity-50"
         >
           {splitting ? "Splitting..." : "Auto-Split"}
         </button>
         <button
           onClick={onClearDays}
-          className="text-[11px] rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 px-3 py-1.5 transition-colors"
+          className="text-[11px] rounded bg-surface-alt hover:bg-surface-hover text-muted px-3 py-1.5 transition-colors"
         >
           Clear
         </button>
@@ -158,13 +154,13 @@ export function DayPlannerPanel({
                   rounded-md px-3 py-2.5 cursor-pointer transition-all border
                   ${isSelected
                     ? "bg-blue-950/60 border-blue-600"
-                    : "bg-zinc-800/80 border-zinc-700/50 hover:border-zinc-600"
+                    : "bg-surface-alt/80 border-border/50 hover:border-surface-hover"
                   }
                 `}
               >
                 {/* Day header */}
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-medium text-zinc-200 truncate">
+                  <span className="text-xs font-medium text-secondary truncate">
                     {day.name || `Day ${day.day}`}
                   </span>
                   <div className="flex items-center gap-1.5">
@@ -181,7 +177,7 @@ export function DayPlannerPanel({
                           setEditDesc(day.description || "");
                         }
                       }}
-                      className="text-[10px] text-zinc-500 hover:text-zinc-300 transition-colors"
+                      className="text-[10px] text-muted hover:text-secondary transition-colors"
                     >
                       {isEditing ? "✓" : "✏️"}
                     </button>
@@ -189,7 +185,7 @@ export function DayPlannerPanel({
                     {onExportDayGpx && (
                       <button
                         onClick={(e) => { e.stopPropagation(); onExportDayGpx(day.day); }}
-                        className="text-[10px] text-zinc-500 hover:text-blue-400 transition-colors"
+                        className="text-[10px] text-muted hover:text-blue-400 transition-colors"
                         title={`Export Day ${day.day} GPX`}
                       >
                         📤
@@ -198,7 +194,7 @@ export function DayPlannerPanel({
                     {/* Import GPX into this day */}
                     {onImportDayGpx && (
                       <label
-                        className="text-[10px] text-zinc-500 hover:text-green-400 transition-colors cursor-pointer"
+                        className="text-[10px] text-muted hover:text-green-400 transition-colors cursor-pointer"
                         title={`Import GPX into Day ${day.day}`}
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -231,29 +227,126 @@ export function DayPlannerPanel({
                       value={editName}
                       onChange={(e) => setEditName(e.target.value)}
                       placeholder="Day name"
-                      className="w-full text-[11px] bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-zinc-200 placeholder:text-zinc-600"
+                      className="w-full text-[11px] bg-surface border border-border rounded px-2 py-1 text-primary placeholder:text-muted"
                     />
                     <input
                       type="text"
                       value={editDesc}
                       onChange={(e) => setEditDesc(e.target.value)}
                       placeholder="Description (optional)"
-                      className="w-full text-[11px] bg-zinc-900 border border-zinc-600 rounded px-2 py-1 text-zinc-200 placeholder:text-zinc-600"
+                      className="w-full text-[11px] bg-surface border border-border rounded px-2 py-1 text-primary placeholder:text-muted"
                     />
                   </div>
                 )}
 
+                {/* Route mode: sync/unsync */}
+                {onDayRouteTypeChange && (
+                  <div
+                    className="flex items-center gap-1 my-1 flex-wrap"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {!day.route_type ? (
+                      /* Synced state */
+                      <>
+                        <span className="text-[10px] text-muted">
+                          🔗 {ROUTE_TYPE_META[tripRouteType]?.icon} {ROUTE_TYPE_META[tripRouteType]?.label}
+                        </span>
+                        <button
+                          onClick={() => onDayRouteTypeChange(day.day, tripRouteType)}
+                          className="text-[10px] text-zinc-600 hover:text-amber-400 transition-colors ml-auto"
+                        >
+                          Unsync
+                        </button>
+                      </>
+                    ) : (
+                      /* Un-synced state: show route type pills */
+                      <>
+                        <span className="text-[10px] text-amber-500/80 mr-0.5">🔓</span>
+                        {(["scenic", "balanced", "fast"] as RouteType[]).map((type) => (
+                          <button
+                            key={type}
+                            onClick={() => onDayRouteTypeChange(day.day, type)}
+                            className={`text-[10px] px-1.5 py-0.5 rounded-full transition-colors ${
+                              day.route_type === type
+                                ? "bg-blue-600/30 text-blue-300 border border-blue-500/50"
+                                : "bg-surface-alt text-muted hover:text-secondary border border-transparent"
+                            }`}
+                          >
+                            {ROUTE_TYPE_META[type]?.icon} {ROUTE_TYPE_META[type]?.label}
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => onDayRouteTypeChange(day.day, undefined)}
+                          className="text-[10px] text-zinc-600 hover:text-green-400 transition-colors ml-auto"
+                          title="Re-sync with trip default"
+                        >
+                          🔗 Sync
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
+
                 {/* Stats row */}
-                <div className="flex items-center gap-3 text-[11px] text-zinc-500">
-                  <span>{formatDistance(day.distance_m)}</span>
-                  <span>{formatMiles(day.distance_m)}</span>
+                <div className="flex items-center gap-3 text-[11px] text-muted">
+                  <span>{formatDist(day.distance_m)}</span>
                   <span>{formatTime(day.time_s)}</span>
                   <span className="text-zinc-600">{day.waypoint_count} wp</span>
+                  {defaultVehicle && (() => {
+                    const est = estimateFuel(day.distance_m, defaultVehicle);
+                    if (!est) return null;
+                    return <span className="text-amber-500/80">⛽{est.fuelStops > 0 ? est.fuelStops : ""} {est.currencySymbol}{est.fuelCost.toFixed(0)}</span>;
+                  })()}
                 </div>
+
+                {/* Day suggestions: hotel + fuel stops */}
+                {(() => {
+                  const sug = daySuggestions?.find((s) => s.day === day.day);
+                  if (!sug) return null;
+                  return (
+                    <div className="flex flex-col gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
+                      {sug.hotel && (
+                        <div className="flex items-center gap-1 text-[10px]">
+                          <span className="text-blue-400 truncate flex-1" title={sug.hotel.address || ""}>
+                            🏨 {sug.hotel.name}
+                            {sug.hotel.distance_km != null && (
+                              <span className="text-zinc-600"> ({sug.hotel.distance_km.toFixed(1)}km)</span>
+                            )}
+                          </span>
+                          {onAddSuggestedWaypoint && (
+                            <button
+                              onClick={() => onAddSuggestedWaypoint(sug.hotel!)}
+                              className="shrink-0 text-[9px] text-blue-500 hover:text-blue-300 border border-blue-800/50 rounded px-1 py-0.5 transition-colors"
+                              title="Add hotel as waypoint"
+                            >
+                              + Route
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      {sug.fuel_stops.map((f, fi) => (
+                        <div key={fi} className="flex items-center gap-1 text-[10px]">
+                          <span className="text-amber-500/80 truncate flex-1">
+                            ⛽ {f.name}
+                          </span>
+                          {onAddSuggestedWaypoint && (
+                            <button
+                              onClick={() => onAddSuggestedWaypoint(f)}
+                              className="shrink-0 text-[9px] text-amber-500 hover:text-amber-300 border border-amber-800/50 rounded px-1 py-0.5 transition-colors"
+                              title="Add fuel stop as waypoint"
+                            >
+                              + Route
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
 
                 {/* Description */}
                 {day.description && !isEditing && (
-                  <p className="text-[10px] text-zinc-500 mt-1 truncate">{day.description}</p>
+                  <p className="text-[10px] text-muted mt-1 truncate">{day.description}</p>
                 )}
               </div>
             );
@@ -263,8 +356,8 @@ export function DayPlannerPanel({
 
       {/* Trip totals */}
       {dayStats.length > 1 && (
-        <div className="flex items-center justify-between text-[11px] text-zinc-500 border-t border-zinc-700/50 pt-2">
-          <span>Total: {formatDistance(totalDistance)} • {formatTime(totalTime)}</span>
+        <div className="flex items-center justify-between text-[11px] text-muted border-t border-border/50 pt-2">
+          <span>Total: {formatDist(totalDistance)} • {formatTime(totalTime)}</span>
         </div>
       )}
 
@@ -275,7 +368,7 @@ export function DayPlannerPanel({
           className={`flex-1 text-[11px] rounded py-1.5 transition-colors ${
             selectedDay === null
               ? "bg-blue-600 text-white"
-              : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+              : "bg-surface-alt text-muted hover:bg-surface-hover"
           }`}
         >
           🗺️ Full Trip
@@ -283,7 +376,7 @@ export function DayPlannerPanel({
         {onExportAllDaysGpx && dayStats.length > 0 && (
           <button
             onClick={onExportAllDaysGpx}
-            className="text-[11px] rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 px-3 py-1.5 transition-colors"
+            className="text-[11px] rounded bg-surface-alt hover:bg-surface-hover text-muted px-3 py-1.5 transition-colors"
             title="Export all days as ZIP"
           >
             📤 All Days

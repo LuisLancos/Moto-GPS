@@ -12,6 +12,31 @@ from app.models.vehicle import VehicleCreate, VehicleUpdate, VehicleResponse
 
 router = APIRouter(tags=["vehicles"])
 
+_VEHICLE_COLS = (
+    "id, type, brand, model, year, picture_base64, is_default, "
+    "fuel_type, consumption, consumption_unit, tank_capacity, "
+    "fuel_cost_per_unit, fuel_cost_currency, created_at"
+)
+
+
+def _row_to_response(r) -> VehicleResponse:
+    return VehicleResponse(
+        id=str(r.id),
+        type=r.type,
+        brand=r.brand,
+        model=r.model,
+        year=r.year,
+        picture_base64=r.picture_base64,
+        is_default=r.is_default,
+        fuel_type=r.fuel_type or "petrol",
+        consumption=r.consumption,
+        consumption_unit=r.consumption_unit or "mpg",
+        tank_capacity=r.tank_capacity,
+        fuel_cost_per_unit=r.fuel_cost_per_unit,
+        fuel_cost_currency=r.fuel_cost_currency or "GBP",
+        created_at=r.created_at.isoformat() if r.created_at else "",
+    )
+
 
 @router.get("/vehicles", response_model=list[VehicleResponse])
 async def list_vehicles(
@@ -21,24 +46,12 @@ async def list_vehicles(
     """List all vehicles for the current user."""
     result = await db.execute(
         text(
-            "SELECT id, type, brand, model, year, picture_base64, is_default, created_at "
+            f"SELECT {_VEHICLE_COLS} "
             "FROM vehicles WHERE user_id = :uid ORDER BY is_default DESC, created_at DESC"
         ),
         {"uid": user["id"]},
     )
-    return [
-        VehicleResponse(
-            id=str(r.id),
-            type=r.type,
-            brand=r.brand,
-            model=r.model,
-            year=r.year,
-            picture_base64=r.picture_base64,
-            is_default=r.is_default,
-            created_at=r.created_at.isoformat() if r.created_at else "",
-        )
-        for r in result.fetchall()
-    ]
+    return [_row_to_response(r) for r in result.fetchall()]
 
 
 @router.post("/vehicles", response_model=VehicleResponse)
@@ -57,9 +70,11 @@ async def create_vehicle(
 
     result = await db.execute(
         text(
-            "INSERT INTO vehicles (user_id, type, brand, model, year, picture_base64, is_default) "
-            "VALUES (:uid, :type, :brand, :model, :year, :picture, :is_default) "
-            "RETURNING id, type, brand, model, year, picture_base64, is_default, created_at"
+            "INSERT INTO vehicles (user_id, type, brand, model, year, picture_base64, is_default, "
+            "fuel_type, consumption, consumption_unit, tank_capacity, fuel_cost_per_unit, fuel_cost_currency) "
+            "VALUES (:uid, :type, :brand, :model, :year, :picture, :is_default, "
+            ":fuel_type, :consumption, :consumption_unit, :tank_capacity, :fuel_cost_per_unit, :fuel_cost_currency) "
+            f"RETURNING {_VEHICLE_COLS}"
         ),
         {
             "uid": user["id"],
@@ -69,21 +84,16 @@ async def create_vehicle(
             "year": req.year,
             "picture": req.picture_base64,
             "is_default": req.is_default,
+            "fuel_type": req.fuel_type,
+            "consumption": req.consumption,
+            "consumption_unit": req.consumption_unit,
+            "tank_capacity": req.tank_capacity,
+            "fuel_cost_per_unit": req.fuel_cost_per_unit,
+            "fuel_cost_currency": req.fuel_cost_currency,
         },
     )
     await db.commit()
-    r = result.fetchone()
-
-    return VehicleResponse(
-        id=str(r.id),
-        type=r.type,
-        brand=r.brand,
-        model=r.model,
-        year=r.year,
-        picture_base64=r.picture_base64,
-        is_default=r.is_default,
-        created_at=r.created_at.isoformat() if r.created_at else "",
-    )
+    return _row_to_response(result.fetchone())
 
 
 @router.patch("/vehicles/{vehicle_id}", response_model=VehicleResponse)
@@ -95,19 +105,14 @@ async def update_vehicle(
 ):
     """Update a vehicle."""
     updates = {}
-    if req.type is not None:
-        updates["type"] = req.type
-    if req.brand is not None:
-        updates["brand"] = req.brand
-    if req.model is not None:
-        updates["model"] = req.model
-    if req.year is not None:
-        updates["year"] = req.year
-    if req.picture_base64 is not None:
-        updates["picture_base64"] = req.picture_base64
-    if req.is_default is not None:
-        updates["is_default"] = req.is_default
-        if req.is_default:
+    for field in ("type", "brand", "model", "year", "picture_base64", "is_default",
+                   "fuel_type", "consumption", "consumption_unit", "tank_capacity",
+                   "fuel_cost_per_unit", "fuel_cost_currency"):
+        val = getattr(req, field, None)
+        if val is not None:
+            updates[field] = val
+
+    if req.is_default is not None and req.is_default:
             # Unset other defaults first
             await db.execute(
                 text("UPDATE vehicles SET is_default = FALSE WHERE user_id = :uid AND id != :vid"),
@@ -124,7 +129,7 @@ async def update_vehicle(
         text(
             f"UPDATE vehicles SET {set_parts}, updated_at = NOW() "
             f"WHERE id = :vid AND user_id = :uid "
-            f"RETURNING id, type, brand, model, year, picture_base64, is_default, created_at"
+            f"RETURNING {_VEHICLE_COLS}"
         ),
         updates,
     )
@@ -132,17 +137,7 @@ async def update_vehicle(
     r = result.fetchone()
     if not r:
         raise HTTPException(status_code=404, detail="Vehicle not found")
-
-    return VehicleResponse(
-        id=str(r.id),
-        type=r.type,
-        brand=r.brand,
-        model=r.model,
-        year=r.year,
-        picture_base64=r.picture_base64,
-        is_default=r.is_default,
-        created_at=r.created_at.isoformat() if r.created_at else "",
-    )
+    return _row_to_response(r)
 
 
 @router.delete("/vehicles/{vehicle_id}")

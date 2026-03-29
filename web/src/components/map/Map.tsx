@@ -9,6 +9,8 @@ import {
   GeolocateControl,
   Source,
   Layer,
+  Marker,
+  Popup,
   type MapLayerMouseEvent,
   type MapRef,
 } from "react-map-gl/maplibre";
@@ -19,30 +21,36 @@ import { ScoreOverlay } from "./ScoreOverlay";
 import { MapContextMenu, type ContextMenuAction } from "./MapContextMenu";
 import type { Waypoint, RouteResult, DayOverlayWithStats, RouteAnomaly } from "@/lib/types";
 import { SEVERITY_COLORS } from "@/lib/formatters";
+import { useTheme } from "@/contexts/ThemeContext";
 
 const MAPTILER_KEY = process.env.NEXT_PUBLIC_MAPTILER_KEY || "";
-const MAP_STYLE = MAPTILER_KEY
-  ? `https://api.maptiler.com/maps/streets-v2-dark/style.json?key=${MAPTILER_KEY}`
-  : {
-      version: 8 as const,
-      sources: {
-        osm: {
-          type: "raster" as const,
-          tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-          tileSize: 256,
-          attribution: "&copy; OpenStreetMap contributors",
-        },
-      },
-      layers: [
-        {
-          id: "osm",
-          type: "raster" as const,
-          source: "osm",
-          minzoom: 0,
-          maxzoom: 19,
-        },
-      ],
-    };
+
+const OSM_FALLBACK_STYLE = {
+  version: 8 as const,
+  sources: {
+    osm: {
+      type: "raster" as const,
+      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      tileSize: 256,
+      attribution: "&copy; OpenStreetMap contributors",
+    },
+  },
+  layers: [
+    {
+      id: "osm",
+      type: "raster" as const,
+      source: "osm",
+      minzoom: 0,
+      maxzoom: 19,
+    },
+  ],
+};
+
+function getMapStyle(theme: "light" | "dark") {
+  if (!MAPTILER_KEY) return OSM_FALLBACK_STYLE;
+  const variant = theme === "dark" ? "streets-v2-dark" : "streets-v2";
+  return `https://api.maptiler.com/maps/${variant}/style.json?key=${MAPTILER_KEY}`;
+}
 
 // UK center
 const INITIAL_VIEW = {
@@ -72,6 +80,12 @@ interface MapProps {
   overnightStopIndices?: Set<number>;
   dayStats?: DayOverlayWithStats[];
   selectedDay?: number | null;
+  // AI POIs
+  pois?: import("@/lib/types").POIResult[];
+  onAddPOIAsWaypoint?: (poi: import("@/lib/types").POIResult) => void;
+  onClearPOIs?: () => void;
+  // Route POI overlay controls
+  poiOverlaySlot?: React.ReactNode;
 }
 
 export function Map({
@@ -91,9 +105,16 @@ export function Map({
   overnightStopIndices,
   dayStats,
   selectedDay,
+  pois,
+  onAddPOIAsWaypoint,
+  onClearPOIs,
+  poiOverlaySlot,
 }: MapProps) {
+  const { theme } = useTheme();
+  const mapStyle = useMemo(() => getMapStyle(theme), [theme]);
   const mapRef = useRef<MapRef>(null);
   const [showOverlay, setShowOverlay] = useState(true);
+  const [openPOIIndex, setOpenPOIIndex] = useState<number | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -177,9 +198,30 @@ export function Map({
     );
   }, [navigatedAnomaly]);
 
-  // Anomaly highlight GeoJSON — memoized to avoid new object reference each render
+  // Anomaly highlight GeoJSON — uses actual route shape (not a straight line)
   const anomalyHighlightGeoJson = useMemo(() => {
     if (!navigatedAnomaly?.segment) return null;
+    const seg = navigatedAnomaly.segment;
+
+    // Use actual route shape points between indices for an accurate on-road highlight
+    let coordinates: [number, number][];
+    if (
+      selectedRoute?.shape &&
+      seg.start_shape_index >= 0 &&
+      seg.end_shape_index > seg.start_shape_index &&
+      seg.end_shape_index < selectedRoute.shape.length
+    ) {
+      // shape is [[lat,lng],...] but GeoJSON needs [lng,lat]
+      coordinates = selectedRoute.shape
+        .slice(seg.start_shape_index, seg.end_shape_index + 1)
+        .map((p) => [p[1], p[0]] as [number, number]);
+    } else {
+      // Fallback: straight line between segment endpoints
+      coordinates = [seg.start_coord, seg.end_coord];
+    }
+
+    if (coordinates.length < 2) return null;
+
     return {
       type: "FeatureCollection" as const,
       features: [{
@@ -187,14 +229,16 @@ export function Map({
         properties: { severity: navigatedAnomaly.severity },
         geometry: {
           type: "LineString" as const,
-          coordinates: [navigatedAnomaly.segment.start_coord, navigatedAnomaly.segment.end_coord],
+          coordinates,
         },
       }],
     };
-  }, [navigatedAnomaly]);
+  }, [navigatedAnomaly, selectedRoute]);
 
   const handleClick = useCallback(
     (e: MapLayerMouseEvent) => {
+      // Close any open POI popup
+      setOpenPOIIndex(null);
       // Check if click is on a route layer
       const routeLayers = routes
         .map((_, i) => `route-${i}`)
@@ -302,7 +346,7 @@ export function Map({
       mapLib={maplibregl}
       initialViewState={INITIAL_VIEW}
       style={{ width: "100%", height: "100%" }}
-      mapStyle={MAP_STYLE}
+      mapStyle={mapStyle}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
       cursor="crosshair"
@@ -356,7 +400,7 @@ export function Map({
             px-3 py-1.5 rounded-md text-xs font-medium shadow-lg transition-colors
             ${showOverlay
               ? "bg-blue-600 text-white"
-              : "bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+              : "bg-surface-alt text-muted hover:text-secondary"
             }
           `}
         >
@@ -368,6 +412,12 @@ export function Map({
           </span>
         )}
       </div>
+      {/* POI overlay controls */}
+      {poiOverlaySlot && (
+        <div className="absolute top-12 left-3 z-10">
+          {poiOverlaySlot}
+        </div>
+      )}
       {/* Anomaly highlight on map */}
       {anomalyHighlightGeoJson && (
         <Source id="anomaly-highlight" type="geojson" data={anomalyHighlightGeoJson}>
@@ -394,6 +444,55 @@ export function Map({
           />
         </Source>
       )}
+      {/* Anomaly location marker */}
+      {navigatedAnomaly?.segment && (
+        <Marker
+          longitude={
+            (navigatedAnomaly.segment.start_coord[0] + navigatedAnomaly.segment.end_coord[0]) / 2
+          }
+          latitude={
+            (navigatedAnomaly.segment.start_coord[1] + navigatedAnomaly.segment.end_coord[1]) / 2
+          }
+          anchor="center"
+        >
+          <div className={`flex items-center justify-center w-8 h-8 rounded-full border-2 text-sm font-bold shadow-lg ${
+            navigatedAnomaly.severity === "issue"
+              ? "bg-red-600/90 border-red-400 text-white"
+              : navigatedAnomaly.severity === "warning"
+              ? "bg-amber-600/90 border-amber-400 text-white"
+              : "bg-blue-600/90 border-blue-400 text-white"
+          }`}>
+            {navigatedAnomaly.severity === "issue" ? "⚠" : navigatedAnomaly.severity === "warning" ? "!" : "💡"}
+          </div>
+        </Marker>
+      )}
+
+      {/* AI POI markers */}
+      {pois && pois.length > 0 && (
+        <>
+          {pois.map((poi, i) => (
+            <POIMarker
+              key={`poi-${i}-${poi.name}`}
+              poi={poi}
+              isOpen={openPOIIndex === i}
+              onOpen={() => setOpenPOIIndex(i)}
+              onClose={() => setOpenPOIIndex(null)}
+              onAddAsWaypoint={onAddPOIAsWaypoint}
+            />
+          ))}
+          {/* Clear POIs button */}
+          {onClearPOIs && (
+            <div className="absolute top-14 right-3 z-10">
+              <button
+                onClick={onClearPOIs}
+                className="bg-overlay border border-border text-secondary text-[10px] px-2 py-1 rounded-md hover:bg-surface-alt transition-colors"
+              >
+                Clear {pois.length} POIs
+              </button>
+            </div>
+          )}
+        </>
+      )}
 
       {/* Right-click context menu */}
       {contextMenu && (
@@ -405,5 +504,183 @@ export function Map({
         />
       )}
     </MapGL>
+  );
+}
+
+// ---------- POI Marker sub-component ----------
+
+const POI_ICONS: Record<string, string> = {
+  fuel: "⛽", restaurant: "🍽️", pub: "🍺", castle: "🏰",
+  viewpoint: "👁️", museum: "🏛️", biker_cafe: "☕",
+  biker_spot: "🏍️", scenic_road: "🛣️", accommodation: "🏨",
+  hotel: "🏨", campsite: "⛺", attraction: "📍", cafe: "☕",
+};
+
+function POIMarker({
+  poi,
+  isOpen,
+  onOpen,
+  onClose,
+  onAddAsWaypoint,
+}: {
+  poi: import("@/lib/types").POIResult;
+  isOpen: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+  onAddAsWaypoint?: (poi: import("@/lib/types").POIResult) => void;
+}) {
+  const [detail, setDetail] = useState<{
+    google?: { rating?: number; user_ratings_total?: number; photo_url?: string; google_maps_url?: string };
+    wikipedia?: { title?: string; extract?: string; thumbnail?: string; url?: string };
+  } | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const icon = POI_ICONS[poi.category] || "📍";
+
+  const fetchDetail = async () => {
+    if (detail || detailLoading) return;
+    setDetailLoading(true);
+    try {
+      const { authFetch } = await import("@/lib/authApi");
+      const res = await authFetch("/api/route/poi-detail", {
+        method: "POST",
+        body: JSON.stringify({ name: poi.name, lat: poi.lat, lng: poi.lng, wikidata: poi.wikidata }),
+      });
+      if (res.ok) setDetail(await res.json());
+    } catch { /* silent */ }
+    finally { setDetailLoading(false); }
+  };
+
+  return (
+    <>
+      <Marker
+        longitude={poi.lng}
+        latitude={poi.lat}
+        anchor="bottom"
+        onClick={(e) => {
+          e.originalEvent.stopPropagation();
+          if (isOpen) onClose(); else onOpen();
+        }}
+      >
+        <div
+          className="flex items-center justify-center w-7 h-7 rounded-full bg-surface/90 border-2 border-amber-500 cursor-pointer hover:scale-110 transition-transform text-sm"
+          title={`${poi.name} (${poi.category})`}
+        >
+          {icon}
+        </div>
+      </Marker>
+      {isOpen && (
+        <Popup
+          longitude={poi.lng}
+          latitude={poi.lat}
+          anchor="bottom"
+          offset={30}
+          closeOnClick={true}
+          onClose={onClose}
+          className="poi-popup"
+          maxWidth="280px"
+        >
+          <div className="flex flex-col gap-1.5 min-w-[200px] max-w-[260px]">
+            {/* Photo from Google/Wikipedia */}
+            {detail?.google?.photo_url && (
+              <img src={detail.google.photo_url} alt={poi.name} className="w-full h-24 object-cover rounded" />
+            )}
+            {!detail?.google?.photo_url && detail?.wikipedia?.thumbnail && (
+              <img src={detail.wikipedia.thumbnail} alt={poi.name} className="w-full h-24 object-cover rounded" />
+            )}
+
+            {/* Name + category */}
+            <div className="text-xs font-semibold text-primary">
+              {icon} {poi.name}
+            </div>
+
+            {/* Brand / cuisine */}
+            {(poi.brand || poi.cuisine) && (
+              <div className="text-[10px] text-muted">
+                {poi.brand}{poi.brand && poi.cuisine ? " · " : ""}{poi.cuisine}
+              </div>
+            )}
+
+            {/* Google rating */}
+            {detail?.google?.rating && (
+              <div className="text-[10px] text-amber-600 font-medium">
+                ⭐ {detail.google.rating}/5 ({detail.google.user_ratings_total} reviews)
+              </div>
+            )}
+
+            {/* Address */}
+            {poi.address && (
+              <div className="text-[10px] text-muted">📍 {poi.address}</div>
+            )}
+
+            {/* Opening hours */}
+            {poi.opening_hours && (
+              <div className="text-[10px] text-muted">🕐 {poi.opening_hours}</div>
+            )}
+
+            {/* Phone */}
+            {poi.phone && (
+              <div className="text-[10px] text-muted">📞 {poi.phone}</div>
+            )}
+
+            {/* Website */}
+            {poi.website && (
+              <a href={poi.website} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-600 hover:underline truncate">
+                🌐 {poi.website.replace(/^https?:\/\/(www\.)?/, "").split("/")[0]}
+              </a>
+            )}
+
+            {/* Wikipedia extract */}
+            {detail?.wikipedia?.extract && (
+              <p className="text-[10px] text-muted leading-relaxed line-clamp-3">
+                {detail.wikipedia.extract}
+              </p>
+            )}
+
+            {/* Action buttons */}
+            <div className="flex items-center gap-1.5 mt-0.5">
+              {onAddAsWaypoint && (
+                <button
+                  onClick={() => { onAddAsWaypoint(poi); onClose(); }}
+                  className="text-[10px] bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded transition-colors"
+                >
+                  + Waypoint
+                </button>
+              )}
+              {!detail && !detailLoading && (
+                <button
+                  onClick={fetchDetail}
+                  className="text-[10px] bg-surface-alt hover:bg-surface-hover text-secondary px-2 py-1 rounded transition-colors"
+                >
+                  📷 More info
+                </button>
+              )}
+              {detailLoading && (
+                <span className="text-[10px] text-muted animate-pulse">Loading...</span>
+              )}
+              {detail?.google?.google_maps_url && (
+                <a
+                  href={detail.google.google_maps_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[10px] bg-surface-alt hover:bg-surface-hover text-secondary px-2 py-1 rounded transition-colors"
+                >
+                  🗺️ Google Maps
+                </a>
+              )}
+              {detail?.wikipedia?.url && (
+                <a
+                  href={detail.wikipedia.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[10px] bg-surface-alt hover:bg-surface-hover text-secondary px-2 py-1 rounded transition-colors"
+                >
+                  📖 Wiki
+                </a>
+              )}
+            </div>
+          </div>
+        </Popup>
+      )}
+    </>
   );
 }
